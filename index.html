@@ -142,12 +142,10 @@
             useEffect(() => {
                 if (window.lucide && ref.current) {
                     ref.current.innerHTML = `<i data-lucide="${name}" class="${className}"></i>`;
-                    window.lucide.createIcons({
-                        attrs: { class: className }
-                    });
+                    window.lucide.createIcons();
                 }
             }, [name, className]);
-            return <span ref={ref} className="inline-flex items-center justify-center leading-none"></span>;
+            return <span ref={ref} style={{ display: 'contents' }}></span>;
         };
 
         const StatusBadge = ({ status }) => {
@@ -744,11 +742,13 @@
             };
 
             const finalizeUserAccountChange = async (oldEmail, newData) => {
-                if (!newData.email.trim() || !newData.password.trim()) return;
-                const { error } = await _supabase.from('szh_users').update({ email: newData.email, password: newData.password }).eq('email', oldEmail);
+                const newEmail = newData.email || "";
+                const newPass = newData.password || newData.pass || "";
+                if (!newEmail.trim() || !newPass.trim()) return;
+                const { error } = await _supabase.from('szh_users').update({ email: newEmail, password: newPass }).eq('email', oldEmail);
                 if (!error) {
-                    setUsers(users.map(u => u.email === oldEmail ? {...u, email: newData.email, password: newData.password} : u));
-                    if (user.email === oldEmail) setUser({...user, email: newData.email, password: newData.password});
+                    setUsers(users.map(u => u.email === oldEmail ? {...u, email: newEmail, password: newPass} : u));
+                    if (user.email === oldEmail) setUser({...user, email: newEmail, password: newPass});
                     setEditingUserAccount(null);
                     notify("User account details updated.");
                 }
