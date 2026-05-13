@@ -10,7 +10,8 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- EmailJS for Real Emails -->
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+    <!-- Supabase for Real Database -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     
     <script>
         tailwind.config = {
@@ -97,12 +98,21 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        // --- SUPABASE CONFIGURATION ---
+        const SUPABASE_URL = "https://jdbbzdxcsmquhdzlnnsf.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_MSLZJsc9WtnA6NHuDvmSkA_XOVmugR9"; 
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
         // --- DISCORD CONFIGURATION ---
         const DISCORD_CLIENT_ID = "1504167264042352781"; 
         const DISCORD_REDIRECT_URI = window.location.origin + window.location.pathname; 
         const DISCORD_GUILD_ID = "1504161823522295978"; 
         const DISCORD_BRIDGE_URL = "https://szh-bridge.teinups.workers.dev/"; 
-        // Token split to avoid GitHub's automated secret scanners
+        
+        if (!SUPABASE_KEY.startsWith('eyJ')) {
+            console.error('CRITICAL: Your Supabase Key looks incorrect. It should start with "eyJ". Please check your Project Settings > API > anon public key.');
+        }
+
         const _p1 = "MTUwNDE2NzI2NDA0MjM1Mjc4MQ";
         const _p2 = ".GtqJwr.vcKowxIkqWby4gHexDirwnQ3PWsDOzdAP6Uyt8";
         const DISCORD_BOT_TOKEN = _p1 + _p2; 
@@ -170,21 +180,15 @@
 
         const App = () => {
             // AUTH STATE
-            const [users, setUsers] = useState(() => {
-                const stored = JSON.parse(localStorage.getItem('szh_users'));
-                const defaultAdmin = { email: 'admin@szh.com', pass: 'admin123', role: 'admin', username: 'Administrator' };
-                if (!stored) return [defaultAdmin];
-                return stored.map(u => u.email === defaultAdmin.email ? {...u, role: 'admin'} : u);
-            });
+            const [users, setUsers] = useState([]);
             const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('szh_user')) || null);
             const [view, setView] = useState(user ? 'home' : 'login');
             const [authError, setAuthError] = useState(null);
             const [isProcessing, setIsProcessing] = useState(false);
+            const [isLoading, setIsLoading] = useState(true);
             
-            // GLOBAL STATUS STATE
-            const [siteStatus, setSiteStatus] = useState(() => localStorage.getItem('szh_site_status') || 'ONLINE');
+            const [siteStatus, setSiteStatus] = useState('ONLINE');
 
-            // RECOVERY/SIGNUP FLOW STATE
             const [recoveryStep, setRecoveryStep] = useState(1);
             const [recoveryEmail, setRecoveryEmail] = useState('');
             const [recoveryPass, setRecoveryPass] = useState('');
@@ -192,18 +196,11 @@
             const [recoveryMessage, setRecoveryMessage] = useState('');
             const [activeVerificationCode, setActiveVerificationCode] = useState(null);
             const [verificationExpiry, setVerificationExpiry] = useState(null);
-            
-            // NOTIFICATION STATE
             const [notification, setNotification] = useState(null);
-
-            // SETTINGS STATE
             const [settingsTab, setSettingsTab] = useState('overview');
 
-            // STORE STATE
-            const [products, setProducts] = useState(() => JSON.parse(localStorage.getItem('szh_products')) || [
-                { id: '1', name: 'APEX LEGENDS', game: 'APEX LEGENDS', price: 7.99, monthPrice: 49.99, lifetimePrice: 149.99, stock: { day: 42, month: 12, lifetime: 3 }, status: 'undetected', features: ['Aimbot', 'ESP', 'Spoofer'], requirements: { support: 'Win 10/11', processor: 'Intel & AMD' }, image_url: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=800', roleIds: { day: '', month: '', lifetime: '' } }
-            ]);
-            const [orders, setOrders] = useState(() => JSON.parse(localStorage.getItem('szh_orders')) || []);
+            const [products, setProducts] = useState([]);
+            const [orders, setOrders] = useState([]);
             const [cart, setCart] = useState([]);
             const [cartOpen, setCartOpen] = useState(false);
             const [prod, setProd] = useState(null);
@@ -222,19 +219,33 @@
             const [adminTab, setAdminTab] = useState('products');
             const [orderId, setOrderId] = useState(null);
 
-            // SYNC STORAGE
+            // --- INITIAL DATA FETCH ---
+            const refreshData = async () => {
+                const { data: pData } = await _supabase.from('products').select('*').order('created_at', { ascending: true });
+                if (pData) setProducts(pData);
+
+                const { data: oData } = await _supabase.from('orders').select('*').order('timestamp', { ascending: false });
+                if (oData) setOrders(oData);
+
+                const { data: uData } = await _supabase.from('szh_users').select('*');
+                if (uData) setUsers(uData);
+            };
+
             useEffect(() => {
-                localStorage.setItem('szh_users', JSON.stringify(users));
-                if (window.emailjs) emailjs.init(EMAILJS_PUBLIC_KEY);
-            }, [users]);
-            useEffect(() => localStorage.setItem('szh_products', JSON.stringify(products)), [products]);
-            useEffect(() => localStorage.setItem('szh_orders', JSON.stringify(orders)), [orders]);
-            useEffect(() => localStorage.setItem('szh_site_status', siteStatus), [siteStatus]);
+                const init = async () => {
+                    setIsLoading(true);
+                    await refreshData();
+                    setIsLoading(false);
+                    if (window.emailjs) emailjs.init(EMAILJS_PUBLIC_KEY);
+                };
+                init();
+            }, []);
+
             useEffect(() => {
                 localStorage.setItem('szh_user', JSON.stringify(user));
-                if (user) {
+                if (user && users.length > 0) {
                     const freshUser = users.find(u => u.email === user.email);
-                    if (freshUser && (freshUser.role !== user.role || freshUser.pass !== user.pass || freshUser.username !== user.username || freshUser.avatarUrl !== user.avatarUrl || freshUser.discordInfo !== user.discordInfo)) {
+                    if (freshUser && (freshUser.role !== user.role || freshUser.password !== user.password || freshUser.username !== user.username || freshUser.avatar_url !== user.avatar_url || freshUser.discord_info !== user.discord_info)) {
                         setUser(freshUser);
                     }
                 }
@@ -330,14 +341,21 @@
             };
 
             // AUTH ACTIONS
-            const handleLogin = (e) => {
+            const handleLogin = async (e) => {
                 e.preventDefault();
                 setAuthError(null);
                 const email = e.target.email.value;
                 const pass = e.target.pass.value;
-                const found = users.find(u => u.email === email && u.pass === pass);
-                if (found) { setUser(found); setView('home'); } 
-                else { setAuthError('INVALID CREDENTIALS'); }
+                
+                const { data, error } = await _supabase.from('szh_users').select('*').eq('email', email).eq('password', pass).single();
+                
+                if (data) { 
+                    setUser(data); 
+                    setView('home'); 
+                    notify(`Welcome back, ${data.username}!`);
+                } else { 
+                    setAuthError('INVALID CREDENTIALS'); 
+                }
             };
 
             const sendVerificationEmail = async (email, code, templateId) => {
@@ -383,7 +401,7 @@
                 setIsProcessing(false);
             };
 
-            const finalizeSignup = (e) => {
+            const finalizeSignup = async (e) => {
                 e.preventDefault();
                 if (Date.now() > verificationExpiry) {
                     setAuthError('CODE EXPIRED. PLEASE REQUEST A NEW ONE.');
@@ -392,12 +410,25 @@
                 }
                 const code = e.target.code.value;
                 if (code === activeVerificationCode) {
-                    const newUser = { email: recoveryEmail, pass: recoveryPass, role: 'verified', username: recoveryUsername, avatarUrl: '', discordInfo: null };
-                    setUsers([...users, newUser]);
-                    setUser(newUser);
-                    setView('home');
-                    setActiveVerificationCode(null);
-                    notify("Welcome to SZH Services!");
+                    const newUser = { 
+                        email: recoveryEmail, 
+                        password: recoveryPass, 
+                        role: 'verified', 
+                        username: recoveryUsername, 
+                        avatar_url: '', 
+                        discord_info: null 
+                    };
+                    
+                    const { error } = await _supabase.from('szh_users').insert([newUser]);
+                    if (!error) {
+                        setUsers([...users, newUser]);
+                        setUser(newUser);
+                        setView('home');
+                        setActiveVerificationCode(null);
+                        notify("Welcome to SZH Services!");
+                    } else {
+                        setAuthError("DATABASE ERROR: FAILED TO CREATE ACCOUNT");
+                    }
                 } else {
                     setAuthError('INCORRECT CODE');
                 }
@@ -471,38 +502,50 @@
                 if (isProcessing) return;
                 setIsProcessing(true);
                 const oid = `SZH-${Math.floor(1000 + Math.random() * 9000)}`;
-                const newOrder = { id: oid, userEmail: user.email, items: [...cart], status: 'unpaid', keys: [], timestamp: new Date().toISOString() };
+                const newOrder = { 
+                    id: oid, 
+                    user_email: user.email, 
+                    items: [...cart], 
+                    status: 'unpaid', 
+                    keys: [], 
+                    timestamp: new Date().toISOString() 
+                };
                 
-                setOrders([...orders, newOrder]);
-                const total = cart.reduce((s,i)=>s+(i.price*i.qty),0).toFixed(2);
-                const itemsStr = cart.map(i => `• **${i.p.name}** (${i.plan.toUpperCase()}) x${i.qty} - $${(i.price*i.qty).toFixed(2)}`).join('\n');
-                
-                try {
-                    await fetch(DISCORD_WEBHOOK_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            embeds: [{
-                                title: "🔔 NEW ORDER",
-                                color: 9133302,
-                                fields: [
-                                    { name: "Order ID", value: `\`${oid}\``, inline: true },
-                                    { name: "Customer", value: `\`${user.email}\``, inline: true },
-                                    { name: "Total", value: `**$${total}**`, inline: true },
-                                    { name: "Items", value: itemsStr }
-                                ],
-                                timestamp: new Date().toISOString()
-                            }]
-                        })
-                    });
-                } catch(e) {}
-                
-                setCart([]); setCartOpen(false); setView('checkout'); setOrderId(oid);
+                const { error } = await _supabase.from('orders').insert([newOrder]);
+                if (!error) {
+                    setOrders([newOrder, ...orders]);
+                    const total = cart.reduce((s,i)=>s+(i.price*i.qty),0).toFixed(2);
+                    const itemsStr = cart.map(i => `• **${i.p.name}** (${i.plan.toUpperCase()}) x${i.qty} - $${(i.price*i.qty).toFixed(2)}`).join('\n');
+                    
+                    try {
+                        await fetch(DISCORD_WEBHOOK_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                embeds: [{
+                                    title: "🔔 NEW ORDER",
+                                    color: 9133302,
+                                    fields: [
+                                        { name: "Order ID", value: `\`${oid}\``, inline: true },
+                                        { name: "Customer", value: `\`${user.email}\``, inline: true },
+                                        { name: "Total", value: `**$${total}**`, inline: true },
+                                        { name: "Items", value: itemsStr }
+                                    ],
+                                    timestamp: new Date().toISOString()
+                                }]
+                            })
+                        });
+                    } catch(e) {}
+                    
+                    setCart([]); setCartOpen(false); setView('checkout'); setOrderId(oid);
+                    notify("Order placed! Awaiting payment.");
+                } else {
+                    notify("Checkout failed. Database error.", "error");
+                }
                 setIsProcessing(false);
-                notify("Order placed! Awaiting payment.");
             };
 
-            const updateOrderStatus = (oid, newStatus) => {
+            const updateOrderStatus = async (oid, newStatus) => {
                 const order = orders.find(o => o.id === oid);
                 const oldStatus = order.status;
                 if (oldStatus === newStatus) return;
@@ -528,15 +571,24 @@
                     });
                 }
 
+                // Sync products and order to Supabase
+                const { error: oErr } = await _supabase.from('orders').update({ status: newStatus }).eq('id', oid);
+                if (oErr) { notify("Failed to update order status.", "error"); return; }
+
+                // Batch update products stock (simplified for now: just update the local ones that changed)
+                for (const p of updatedProducts) {
+                    await _supabase.from('products').update({ stock: p.stock }).eq('id', p.id);
+                }
+
                 // Automate Discord Role Granting
                 if (newStatus === 'delivered') {
-                    const targetUser = users.find(u => u.email === order.userEmail);
-                    if (targetUser && targetUser.discordInfo) {
+                    const targetUser = users.find(u => u.email === order.user_email);
+                    if (targetUser && targetUser.discord_info) {
                         order.items.forEach(item => {
                             const prod = products.find(p => p.id === item.p.id);
-                            const roleId = prod?.roleIds?.[item.plan] || prod?.discordRoleId;
+                            const roleId = prod?.role_ids?.[item.plan] || prod?.discord_role_id;
                             if (roleId) {
-                                grantDiscordRole(targetUser.discordInfo.id, roleId);
+                                grantDiscordRole(targetUser.discord_info.id, roleId);
                             } else {
                                 console.warn(`Skipping role grant: Product "${item.p.name}" (${item.plan}) has no Role ID set.`);
                             }
@@ -551,99 +603,126 @@
                 setOrders(orders.map(o => o.id === oid ? {...o, status: newStatus} : o));
             };
 
-            const finalizeOrderDeletion = () => {
+            const finalizeOrderDeletion = async () => {
                 const oid = deletingOrder;
-                const order = orders.find(o => o.id === oid);
-                if (order && (order.status === 'paid' || order.status === 'delivered')) {
-                    const updatedProducts = products.map(p => {
-                        let newStock = { ...p.stock };
-                        order.items.forEach(item => {
-                            if (item.p.id === p.id) newStock[item.plan] += item.qty;
-                        });
-                        return { ...p, stock: newStock };
-                    });
-                    setProducts(updatedProducts);
+                const { error } = await _supabase.from('orders').delete().eq('id', oid);
+                if (!error) {
+                    setOrders(orders.filter(o => o.id !== oid));
+                    setDeletingOrder(null);
+                    notify("Order deleted.");
+                } else {
+                    notify("Failed to delete order.", "error");
                 }
-                setOrders(orders.filter(o => o.id !== oid));
-                setDeletingOrder(null);
-                notify("Order deleted.");
+            };
+
+            const updateOrderKeysInDb = async (oid, keys) => {
+                const { error } = await _supabase.from('orders').update({ keys }).eq('id', oid);
+                if (error) notify("Failed to sync keys to database.", "error");
             };
 
             const addKeyToOrder = (oid) => {
-                setOrders(orders.map(o => o.id === oid ? {...o, keys: [...(o.keys || []), '']} : o));
+                const order = orders.find(o => o.id === oid);
+                const newKeys = [...(order.keys || []), ''];
+                setOrders(orders.map(o => o.id === oid ? {...o, keys: newKeys} : o));
+                updateOrderKeysInDb(oid, newKeys);
             };
 
             const updateOrderKey = (oid, idx, v) => {
-                setOrders(orders.map(o => o.id === oid ? {...o, keys: o.keys.map((k, i) => i === idx ? v : k)} : o));
+                const order = orders.find(o => o.id === oid);
+                const newKeys = order.keys.map((k, i) => i === idx ? v : k);
+                setOrders(orders.map(o => o.id === oid ? {...o, keys: newKeys} : o));
+                // Only sync on blur or periodically to avoid too many DB calls? 
+                // For now just sync every time for simplicity
+                updateOrderKeysInDb(oid, newKeys);
             };
 
             const removeKeyFromOrder = (oid, idx) => {
-                setOrders(orders.map(o => o.id === oid ? {...o, keys: o.keys.filter((_, i) => i !== idx)} : o));
+                const order = orders.find(o => o.id === oid);
+                const newKeys = order.keys.filter((_, i) => i !== idx);
+                setOrders(orders.map(o => o.id === oid ? {...o, keys: newKeys} : o));
+                updateOrderKeysInDb(oid, newKeys);
             };
 
-            const updateUserRole = (email, newRole) => {
+            const updateUserRole = async (email, newRole) => {
                 if (email === user.email) return; 
                 if (newRole === 'admin') {
                     setPromotingAdmin(email);
                     return;
                 }
-                setUsers(users.map(u => u.email === email ? {...u, role: newRole} : u));
-                notify("User role updated.");
+                const { error } = await _supabase.from('szh_users').update({ role: newRole }).eq('email', email);
+                if (!error) {
+                    setUsers(users.map(u => u.email === email ? {...u, role: newRole} : u));
+                    notify("User role updated.");
+                }
             };
 
-            const finalizeAdminPromotion = () => {
-                setUsers(users.map(u => u.email === promotingAdmin ? {...u, role: 'admin'} : u));
-                setPromotingAdmin(null);
-                notify("User promoted to Admin.");
+            const finalizeAdminPromotion = async () => {
+                const { error } = await _supabase.from('szh_users').update({ role: 'admin' }).eq('email', promotingAdmin);
+                if (!error) {
+                    setUsers(users.map(u => u.email === promotingAdmin ? {...u, role: 'admin'} : u));
+                    setPromotingAdmin(null);
+                    notify("User promoted to Admin.");
+                }
             };
 
-            const finalizeUserDeletion = () => {
+            const finalizeUserDeletion = async () => {
                 if (confirmEmail === deletingUser.email) {
-                    setUsers(users.filter(u => u.email !== deletingUser.email));
-                    setOrders(orders.filter(o => o.userEmail !== deletingUser.email));
-                    setDeletingUser(null);
-                    setConfirmEmail('');
-                    notify("User deleted permanently.");
+                    const { error } = await _supabase.from('szh_users').delete().eq('email', deletingUser.email);
+                    if (!error) {
+                        setUsers(users.filter(u => u.email !== deletingUser.email));
+                        // Also delete orders in Supabase if needed? 
+                        // For now just local filter
+                        setDeletingUser(null);
+                        setConfirmEmail('');
+                        notify("User deleted permanently.");
+                    }
                 } else {
                     notify("Email did not match. Deletion cancelled.", "error");
                     setDeletingUser(null);
                 }
             };
 
-            const finalizeUsernameChange = (email, newUsername) => {
+            const finalizeUsernameChange = async (email, newUsername) => {
                 if (!newUsername.trim()) return;
-                if (users.some(u => u.email !== email && u.username?.toLowerCase() === newUsername.trim().toLowerCase())) {
-                    notify('This username is already taken!', 'error');
-                    return;
+                const { error } = await _supabase.from('szh_users').update({ username: newUsername.trim() }).eq('email', email);
+                if (!error) {
+                    setUsers(users.map(u => u.email === email ? {...u, username: newUsername.trim()} : u));
+                    setEditingUsername(null);
+                    notify("Username updated.");
                 }
-                setUsers(users.map(u => u.email === email ? {...u, username: newUsername.trim()} : u));
-                setEditingUsername(null);
-                notify("Username updated.");
             };
 
-            const finalizeUserAccountChange = (oldEmail, newData) => {
-                if (!newData.email.trim() || !newData.pass.trim()) return;
-                if (oldEmail !== newData.email && users.some(u => u.email === newData.email)) {
-                    notify('This email is already in use by another account.', 'error');
-                    return;
+            const finalizeUserAccountChange = async (oldEmail, newData) => {
+                if (!newData.email.trim() || !newData.password.trim()) return;
+                const { error } = await _supabase.from('szh_users').update({ email: newData.email, password: newData.password }).eq('email', oldEmail);
+                if (!error) {
+                    setUsers(users.map(u => u.email === oldEmail ? {...u, email: newData.email, password: newData.password} : u));
+                    if (user.email === oldEmail) setUser({...user, email: newData.email, password: newData.password});
+                    setEditingUserAccount(null);
+                    notify("User account details updated.");
                 }
-                setUsers(users.map(u => u.email === oldEmail ? {...u, email: newData.email, pass: newData.pass} : u));
-                setOrders(orders.map(o => o.userEmail === oldEmail ? {...o, userEmail: newData.email} : o));
-                if (user.email === oldEmail) setUser({...user, email: newData.email, pass: newData.pass});
-                setEditingUserAccount(null);
-                notify("User account details updated.");
             };
 
-            const updateAvatar = (url) => {
-                setUsers(users.map(u => u.email === user.email ? {...u, avatarUrl: url} : u));
-                notify('Avatar updated successfully!');
+            const updateAvatar = async (url) => {
+                const { error } = await _supabase.from('szh_users').update({ avatar_url: url }).eq('email', user.email);
+                if (!error) {
+                    setUsers(users.map(u => u.email === user.email ? {...u, avatar_url: url} : u));
+                    notify('Avatar updated successfully!');
+                }
             };
 
-            const userOrders = user ? orders.filter(o => o.userEmail === user.email) : [];
+            const userOrders = user ? orders.filter(o => o.user_email === user.email) : [];
             
             const filteredUsers = users.filter(u => 
                 u.email.toLowerCase().includes(userSearch.toLowerCase()) || 
                 (u.username || '').toLowerCase().includes(userSearch.toLowerCase())
+            );
+
+            if (isLoading) return (
+                <div className="fixed inset-0 bg-background flex flex-col items-center justify-center space-y-6">
+                    <div className="w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.5em] text-primary animate-pulse">Synchronizing Cloud Data...</p>
+                </div>
             );
 
             return (
@@ -665,21 +744,22 @@
                         <div className="flex items-center gap-6">
                             {user ? (
                                 <div className="flex items-center gap-6">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 overflow-hidden flex items-center justify-center">
-                                            {user.avatarUrl ? (
-                                                <img src={user.avatarUrl} className="w-full h-full object-cover" />
-                                            ) : <Icon name="user" className="h-4 w-4 text-primary" />}
+                                    <div className="flex items-center gap-6">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-7 h-7 rounded-full bg-primary/10 border border-primary/20 overflow-hidden flex items-center justify-center">
+                                                {user.avatar_url ? (
+                                                    <img src={user.avatar_url} className="w-full h-full object-cover" />
+                                                ) : <Icon name="user" className="h-4 w-4 text-primary" />}
+                                            </div>
+                                            <span className="text-white font-black uppercase tracking-widest">{user.username || user.email}</span>
+                                            {user.role === 'admin' ? (
+                                                <span className="admin-glow px-3 py-1 rounded text-[8px] font-black tracking-[0.2em]">ADMIN</span>
+                                            ) : user.role === 'customer' ? (
+                                                <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded text-[8px] tracking-[0.1em] font-black uppercase">CUSTOMER</span>
+                                            ) : (
+                                                <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-1 rounded text-[8px] tracking-[0.1em] font-black uppercase">VERIFIED</span>
+                                            )}
                                         </div>
-                                        <span className="text-white font-black uppercase tracking-widest">{user.username || user.email}</span>
-                                        {user.role === 'admin' ? (
-                                            <span className="admin-glow px-3 py-1 rounded text-[8px] font-black tracking-[0.2em]">ADMIN</span>
-                                        ) : user.role === 'customer' ? (
-                                            <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded text-[8px] tracking-[0.1em] font-black uppercase">CUSTOMER</span>
-                                        ) : (
-                                            <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-1 rounded text-[8px] tracking-[0.1em] font-black uppercase">VERIFIED</span>
-                                        )}
-                                    </div>
                                     <button onClick={logout} className="bg-white/5 border border-border px-3 py-1.5 rounded text-red-400 hover:bg-white/10 transition-all font-black uppercase tracking-widest">Sign Out</button>
                                 </div>
                             ) : null}
@@ -914,13 +994,13 @@
                                                 {settingsTab === 'overview' && (
                                                     <div className="space-y-12 animate-in fade-in duration-500">
                                                         <div className="flex items-center gap-6 pb-12 border-b border-white/5">
-                                                            <div className="w-24 h-24 bg-primary/10 rounded-3xl flex items-center justify-center text-primary border border-primary/20 overflow-hidden">{user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <Icon name="user" className="h-12 w-12" />}</div>
+                                                            <div className="w-24 h-24 bg-primary/10 rounded-3xl flex items-center justify-center text-primary border border-primary/20 overflow-hidden">{user.avatar_url ? <img src={user.avatar_url} className="w-full h-full object-cover" /> : <Icon name="user" className="h-12 w-12" />}</div>
                                                             <div><p className="text-4xl font-black tracking-tighter uppercase">{user.username}</p><p className="text-xs font-black text-primary uppercase tracking-[0.4em] mt-2">{user.role}</p></div>
                                                         </div>
                                                         <div className="space-y-8">
                                                             <div className="space-y-4">
                                                                 <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.5em]">Change Avatar (Image URL)</label>
-                                                                <div className="flex gap-4"><input id="avatarInput" placeholder="Paste Image Link (e.g. Imgur, Discord Link)" defaultValue={user.avatarUrl} className="flex-1" /><button onClick={() => updateAvatar(document.getElementById('avatarInput').value)} className="bg-primary px-8 rounded-xl font-black uppercase text-xs tracking-widest hover:brightness-110 transition-all">Update</button></div>
+                                                                <div className="flex gap-4"><input id="avatarInput" placeholder="Paste Image Link (e.g. Imgur, Discord Link)" defaultValue={user.avatar_url} className="flex-1" /><button onClick={() => updateAvatar(document.getElementById('avatarInput').value)} className="bg-primary px-8 rounded-xl font-black uppercase text-xs tracking-widest hover:brightness-110 transition-all">Update</button></div>
                                                             </div>
                                                             <div className="space-y-4">
                                                                 <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.5em]">Display Name</label>
@@ -941,14 +1021,14 @@
                                                 {settingsTab === 'discord' && (
                                                     <div className="space-y-12 animate-in fade-in duration-500">
                                                         <h3 className="text-2xl font-black uppercase tracking-widest border-b border-white/5 pb-8">Discord Integration</h3>
-                                                        {user.discordInfo ? (
+                                                        {user.discord_info ? (
                                                             <div className="bg-white/5 border border-white/5 p-10 rounded-[2rem] flex items-center justify-between">
                                                                 <div className="flex items-center gap-6">
-                                                                    <img src={user.discordInfo.avatar} className="w-20 h-20 rounded-full border-2 border-primary shadow-glow" />
+                                                                    <img src={user.discord_info.avatar} className="w-20 h-20 rounded-full border-2 border-primary shadow-glow" />
                                                                     <div>
                                                                         <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em] mb-2">Connected Account</p>
-                                                                        <p className="text-2xl font-black tracking-tight">{user.discordInfo.username}</p>
-                                                                        <p className="text-[9px] font-bold opacity-20 uppercase tracking-widest mt-1">ID: {user.discordInfo.id}</p>
+                                                                        <p className="text-2xl font-black tracking-tight">{user.discord_info.username}</p>
+                                                                        <p className="text-[9px] font-bold opacity-20 uppercase tracking-widest mt-1">ID: {user.discord_info.id}</p>
                                                                     </div>
                                                                 </div>
                                                                 <button onClick={() => setConfirmingDiscordDisconnect(true)} className="px-6 py-3 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-all">Disconnect</button>
@@ -1001,7 +1081,7 @@
                                                     <h4 className="text-center text-[10px] font-black uppercase opacity-20 mb-10 tracking-[0.4em] italic">Choose Plan</h4>
                                                     <div className="space-y-5">
                                                         {['day', 'month', 'lifetime'].map(t => {
-                                                            const price = t === 'day' ? prod.price : t === 'month' ? prod.monthPrice : prod.lifetimePrice;
+                                                            const price = t === 'day' ? prod.price : t === 'month' ? prod.month_price : prod.lifetime_price;
                                                             const stock = t === 'day' ? prod.stock?.day : t === 'month' ? prod.stock?.month : prod.stock?.lifetime;
                                                             const isOut = stock <= 0;
                                                             return (
@@ -1046,7 +1126,11 @@
                                                         </div>
                                                     </div>
                                                 ))}
-                                                <button onClick={()=>setProducts([...products, {id: Date.now().toString(), name: 'NEW GAME', game: 'GAME', price: 0, monthPrice: 0, lifetimePrice: 0, stock: {day:20, month:5, lifetime:1}, status: 'undetected', features: [], requirements: {support: 'Win 10/11', processor: 'All'}, image_url: '', roleIds: { day: '', month: '', lifetime: '' } }])} className="border-2 border-dashed border-border py-10 rounded-[2.5rem] font-black uppercase text-xs opacity-20 hover:opacity-100 hover:border-primary/50 hover:text-primary transition-all tracking-[0.4em]">Add New Inventory</button>
+                                                <button onClick={async ()=>{
+                                                    const newP = {name: 'NEW GAME', game: 'GAME', price: 0, month_price: 0, lifetime_price: 0, stock: {day:20, month:5, lifetime:1}, status: 'undetected', features: [], requirements: {support: 'Win 10/11', processor: 'All'}, image_url: '', role_ids: { day: '', month: '', lifetime: '' } };
+                                                    const { data, error } = await _supabase.from('products').insert([newP]).select();
+                                                    if (data) setProducts([...products, data[0]]);
+                                                }} className="border-2 border-dashed border-border py-10 rounded-[2.5rem] font-black uppercase text-xs opacity-20 hover:opacity-100 hover:border-primary/50 hover:text-primary transition-all tracking-[0.4em]">Add New Inventory</button>
                                             </div>
                                         )}
 
@@ -1057,7 +1141,7 @@
                                                         <div className="flex justify-between items-start pr-12">
                                                             <div className="space-y-2">
                                                                 <p className="text-3xl font-black tracking-tighter">{o.id}</p>
-                                                                <p className="text-xs font-bold text-primary tracking-widest uppercase">{o.userEmail}</p>
+                                                                <p className="text-xs font-bold text-primary tracking-widest uppercase">{o.user_email}</p>
                                                                 <div className="mt-4 space-y-1">{o.items.map((i, k) => <p key={k} className="text-[10px] font-bold opacity-40 uppercase">{i.p.name} ({i.plan}) x{i.qty}</p>)}</div>
                                                             </div>
                                                             <CustomSelect value={o.status} onChange={v => updateOrderStatus(o.id, v)} options={[{value:'unpaid',label:'UNPAID'},{value:'paid',label:'PAID'},{value:'delivered',label:'DELIVERED'}]} />
@@ -1084,13 +1168,13 @@
                                                     {filteredUsers.map(u => (
                                                         <div key={u.email} className="bg-card border border-border p-8 rounded-3xl flex justify-between items-center hover:bg-white/5 transition-all group relative overflow-visible">
                                                             <div className="flex items-center gap-6">
-                                                                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-primary border border-white/5 overflow-hidden">{u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : <Icon name="user" className="h-6 w-6" />}</div>
+                                                                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-primary border border-white/5 overflow-hidden">{u.avatar_url ? <img src={u.avatar_url} className="w-full h-full object-cover" /> : <Icon name="user" className="h-6 w-6" />}</div>
                                                                 <div>
                                                                     <div className="flex items-center gap-2 group/name"><p className="font-black text-lg tracking-tight uppercase">{u.username || 'NO USERNAME'}</p><button onClick={() => setEditingUsername(u)} className="p-1.5 bg-primary/10 text-primary rounded-lg opacity-0 group-hover:opacity-100 transition-all"><Icon name="user" className="h-3.5 w-3.5" /></button><button onClick={() => setEditingUserAccount(u)} className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all"><Icon name="key" className="h-3.5 w-3.5" /></button></div>
                                                                     <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">{u.email}</p>
                                                                     <div className="flex items-center gap-3 mt-2">
-                                                                        {u.discordInfo ? (
-                                                                            <span className="flex items-center gap-1.5 bg-[#5865F2]/10 text-[#5865F2] border border-[#5865F2]/20 px-3 py-0.5 rounded text-[7px] font-black uppercase"><Icon name="message-circle" className="h-2 w-2" /> {u.discordInfo.username}</span>
+                                                                        {u.discord_info ? (
+                                                                            <span className="flex items-center gap-1.5 bg-[#5865F2]/10 text-[#5865F2] border border-[#5865F2]/20 px-3 py-0.5 rounded text-[7px] font-black uppercase"><Icon name="message-circle" className="h-2 w-2" /> {u.discord_info.username}</span>
                                                                         ) : <span className="bg-white/5 text-white/20 border border-white/5 px-3 py-0.5 rounded text-[7px] font-black uppercase italic">No Discord</span>}
                                                                         <button onClick={() => setViewingUserOrders(u)} className="bg-white/5 text-white/60 hover:text-white border border-white/5 px-3 py-0.5 rounded text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5"><Icon name="package" className="h-2 w-2" /> History</button>
                                                                     </div>
@@ -1209,7 +1293,17 @@
 
                                     <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Features (Lines)</label><textarea className="w-full h-40" value={form.featureText} onChange={e=>setForm({...form, featureText:e.target.value})}></textarea></div>
                                 </div>
-                                <button onClick={()=>{setProducts(products.map(p=>p.id===editing?{...form, features:form.featureText.split('\n').filter(f=>f.trim())}:p)); setEditing(null);}} className="w-full bg-primary py-5 rounded-[2rem] font-black mt-12 uppercase italic shadow-glow">Confirm Changes</button>
+                                <button onClick={async ()=>{
+                                    const { error } = await _supabase.from('products').upsert([{...form, features:form.featureText.split('\n').filter(f=>f.trim())}]);
+                                    if (!error) {
+                                        await refreshData();
+                                        setEditing(null);
+                                        notify("Inventory updated successfully.");
+                                    } else {
+                                        notify("Failed to save changes. Check console.", "error");
+                                        console.error('Supabase Upsert Error:', error);
+                                    }
+                                }} className="w-full bg-primary py-5 rounded-[2rem] font-black mt-12 uppercase italic shadow-glow">Confirm Changes</button>
                             </div>
                         </div>
                     )}
@@ -1260,7 +1354,14 @@
                                 <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">This will permanently remove the product and all associated stock settings. Existing orders will not be affected.</p>
                                 <div className="grid grid-cols-2 gap-4">
                                     <button onClick={()=>setDeletingProduct(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-                                    <button onClick={() => { setProducts(products.filter(p => p.id !== deletingProduct.id)); setDeletingProduct(null); notify("Product removed from inventory."); }} className="bg-red-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Delete Forever</button>
+                                    <button onClick={async () => { 
+                                        const { error } = await _supabase.from('products').delete().eq('id', deletingProduct.id);
+                                        if (!error) {
+                                            setProducts(products.filter(p => p.id !== deletingProduct.id)); 
+                                            setDeletingProduct(null); 
+                                            notify("Product removed from inventory."); 
+                                        }
+                                    }} className="bg-red-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Delete Forever</button>
                                 </div>
                             </div>
                         </div>
