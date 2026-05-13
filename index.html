@@ -271,7 +271,11 @@
                 
                 if (user && users.length > 0) {
                     const freshUser = users.find(u => u.email === user.email);
-                    if (freshUser && (freshUser.role !== user.role || freshUser.password !== user.password || freshUser.username !== user.username || freshUser.avatar_url !== user.avatar_url || freshUser.discord_info !== user.discord_info)) {
+                    if (!freshUser) {
+                        logout();
+                        return;
+                    }
+                    if (freshUser.role !== user.role || freshUser.password !== user.password || freshUser.username !== user.username || freshUser.avatar_url !== user.avatar_url || JSON.stringify(freshUser.discord_info) !== JSON.stringify(user.discord_info)) {
                         setUser(freshUser);
                     }
                 }
@@ -549,6 +553,15 @@
 
             const handleCheckout = async () => {
                 if (isProcessing) return;
+                
+                // Verify user still exists before order
+                const { data: checkUser } = await _supabase.from('szh_users').select('email').eq('email', user.email).single();
+                if (!checkUser) {
+                    logout();
+                    notify("Session expired or account deleted.", "error");
+                    return;
+                }
+
                 setIsProcessing(true);
                 const oid = `SZH-${Math.floor(1000 + Math.random() * 9000)}`;
                 const newOrder = { 
