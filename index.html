@@ -192,7 +192,13 @@
         const App = () => {
             // AUTH STATE
             const [users, setUsers] = useState([]);
-            const [user, setUser] = useState(() => JSON.parse(localStorage.getItem('szh_user')) || null);
+            const [user, setUser] = useState(() => {
+                try {
+                    return JSON.parse(localStorage.getItem('szh_user')) || null;
+                } catch(e) {
+                    return null;
+                }
+            });
             const [view, setView] = useState(user ? 'home' : 'login');
             const [authError, setAuthError] = useState(null);
             const [isProcessing, setIsProcessing] = useState(false);
@@ -253,7 +259,10 @@
             }, []);
 
             useEffect(() => {
-                localStorage.setItem('szh_user', JSON.stringify(user));
+                try {
+                    localStorage.setItem('szh_user', JSON.stringify(user));
+                } catch(e) {}
+                
                 if (user && users.length > 0) {
                     const freshUser = users.find(u => u.email === user.email);
                     if (freshUser && (freshUser.role !== user.role || freshUser.password !== user.password || freshUser.username !== user.username || freshUser.avatar_url !== user.avatar_url || freshUser.discord_info !== user.discord_info)) {
