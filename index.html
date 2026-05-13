@@ -289,18 +289,31 @@
                         headers: { Authorization: `Bearer ${accessToken}` }
                     })
                     .then(res => res.json())
-                    .then(data => {
+                    .then(async data => {
                         const avatarUrl = data.avatar 
                             ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.png` 
                             : `https://cdn.discordapp.com/embed/avatars/${data.discriminator % 5}.png`;
                         
-                        setUsers(prev => prev.map(u => u.email === user.email ? {
-                            ...u, 
-                            discordInfo: { id: data.id, username: data.username, avatar: avatarUrl },
-                            avatarUrl: u.avatarUrl || avatarUrl
-                        } : u));
+                        const discordInfo = { id: data.id, username: data.username, avatar: avatarUrl };
                         
-                        notify(`Connected to Discord as ${data.username}!`);
+                        // Update Supabase
+                        const { error } = await _supabase.from('szh_users').update({ 
+                            discord_info: discordInfo,
+                            avatar_url: user.avatar_url || avatarUrl 
+                        }).eq('email', user.email);
+
+                        if (!error) {
+                            setUser(prev => ({ ...prev, discord_info: discordInfo, avatar_url: prev.avatar_url || avatarUrl }));
+                            setUsers(prev => prev.map(u => u.email === user.email ? {
+                                ...u, 
+                                discord_info: discordInfo,
+                                avatar_url: u.avatar_url || avatarUrl
+                            } : u));
+                            notify(`Connected to Discord as ${data.username}!`);
+                        } else {
+                            notify("Failed to save Discord link to database.", "error");
+                        }
+                        
                         setSettingsTab('discord');
                         setIsProcessing(false);
                     })
@@ -320,10 +333,16 @@
                 window.location.href = url;
             };
 
-            const finalizeDiscordDisconnect = () => {
-                setUsers(users.map(u => u.email === user.email ? {...u, discordInfo: null} : u));
+            const finalizeDiscordDisconnect = async () => {
+                const { error } = await _supabase.from('szh_users').update({ discord_info: null }).eq('email', user.email);
+                if (!error) {
+                    setUser(prev => ({ ...prev, discord_info: null }));
+                    setUsers(users.map(u => u.email === user.email ? {...u, discord_info: null} : u));
+                    notify("Discord account disconnected.");
+                } else {
+                    notify("Failed to disconnect from database.", "error");
+                }
                 setConfirmingDiscordDisconnect(false);
-                notify("Discord account disconnected.");
             };
 
             const grantDiscordRole = async (discordUserId, roleId) => {
