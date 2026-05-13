@@ -666,7 +666,7 @@
             };
 
             const finalizeOrderDeletion = async () => {
-                const oid = deletingOrder;
+                const oid = deletingOrder.id;
                 const { error } = await _supabase.from('orders').delete().eq('id', oid);
                 if (!error) {
                     setOrders(orders.filter(o => o.id !== oid));
