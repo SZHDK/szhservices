@@ -1005,8 +1005,14 @@
                                                                         <span className="text-[9px] font-bold opacity-30 uppercase tracking-widest">Qty: {item.qty}</span>
                                                                     </div>
                                                                 </div>
-                                                                <div className="text-right">
+                                                                <div className="text-right flex flex-col items-end gap-3">
                                                                     <p className="font-black text-xl">${(item.price * item.qty).toFixed(2)}</p>
+                                                                    {products.find(p => p.id === item.p.id)?.loader_url && (
+                                                                        <a href={products.find(p => p.id === item.p.id).loader_url} target="_blank" className="p-2.5 bg-blue-500/10 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition-all flex items-center gap-2 border border-blue-500/20 shadow-glow group/dl">
+                                                                            <Icon name="download" className="h-3 w-3 group-hover/dl:animate-bounce" />
+                                                                            <span className="text-[8px] font-black uppercase tracking-widest">Loader</span>
+                                                                        </a>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -1329,6 +1335,7 @@
                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Product Name</label><input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} className="w-full" /></div>
                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Game Category</label><input value={form.game} onChange={e=>setForm({...form, game:e.target.value})} className="w-full" /></div>
                                     <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Image URL</label><input value={form.image_url} onChange={e=>setForm({...form, image_url:e.target.value})} className="w-full" placeholder="https://..." /></div>
+                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Loader Link (Optional)</label><input value={form.loader_url || ''} onChange={e=>setForm({...form, loader_url:e.target.value})} className="w-full" placeholder="https://..." /></div>
                                     <div className="col-span-2 p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-primary">Discord Role IDs (Automation)</p>
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
