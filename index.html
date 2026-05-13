@@ -1399,12 +1399,15 @@
                                     <button onClick={()=>setViewingUserOrders(null)} className="p-2 opacity-30 hover:opacity-100"><Icon name="x" /></button>
                                 </div>
                                 <div className="flex-1 overflow-y-auto space-y-4 no-scrollbar">
-                                    {orders.filter(o => o.userEmail === viewingUserOrders.email).length === 0 ? (
+                                    {orders.filter(o => o.user_email === viewingUserOrders.email).length === 0 ? (
                                         <p className="text-center py-12 opacity-30 font-black uppercase text-[10px] tracking-widest italic">No orders found.</p>
-                                    ) : orders.filter(o => o.userEmail === viewingUserOrders.email).map(o => (
-                                        <div key={o.id} className="bg-white/5 border border-white/5 p-6 rounded-2xl flex justify-between items-center">
+                                    ) : orders.filter(o => o.user_email === viewingUserOrders.email).map(o => (
+                                        <div key={o.id} className="bg-white/5 border border-white/5 p-6 rounded-2xl flex justify-between items-center group/ord">
                                             <div><p className="font-black text-lg tracking-widest">{o.id}</p><p className="text-[8px] font-bold opacity-30 uppercase mt-1">{new Date(o.timestamp).toLocaleDateString()}</p></div>
-                                            <span className={`px-4 py-1 rounded-full border text-[8px] font-black uppercase ${o.status === 'delivered' ? 'border-emerald-400 text-emerald-400' : 'border-amber-400 text-amber-400'}`}>{o.status}</span>
+                                            <div className="flex items-center gap-4">
+                                                <span className={`px-4 py-1 rounded-full border text-[8px] font-black uppercase ${o.status === 'delivered' ? 'border-emerald-400 text-emerald-400' : 'border-amber-400 text-amber-400'}`}>{o.status}</span>
+                                                <button onClick={() => setDeletingOrder(o)} className="p-2 bg-red-500/10 text-red-400 rounded-lg opacity-0 group-hover/ord:opacity-100 transition-all"><Icon name="trash-2" className="h-3 w-3" /></button>
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
