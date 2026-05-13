@@ -201,7 +201,7 @@
 
             // STORE STATE
             const [products, setProducts] = useState(() => JSON.parse(localStorage.getItem('szh_products')) || [
-                { id: '1', name: 'APEX LEGENDS', game: 'APEX LEGENDS', price: 7.99, monthPrice: 49.99, lifetimePrice: 149.99, stock: { day: 42, month: 12, lifetime: 3 }, status: 'undetected', features: ['Aimbot', 'ESP', 'Spoofer'], requirements: { support: 'Win 10/11', processor: 'Intel & AMD' }, image_url: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=800', discordRoleId: '' }
+                { id: '1', name: 'APEX LEGENDS', game: 'APEX LEGENDS', price: 7.99, monthPrice: 49.99, lifetimePrice: 149.99, stock: { day: 42, month: 12, lifetime: 3 }, status: 'undetected', features: ['Aimbot', 'ESP', 'Spoofer'], requirements: { support: 'Win 10/11', processor: 'Intel & AMD' }, image_url: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=800', roleIds: { day: '', month: '', lifetime: '' } }
             ]);
             const [orders, setOrders] = useState(() => JSON.parse(localStorage.getItem('szh_orders')) || []);
             const [cart, setCart] = useState([]);
@@ -534,10 +534,11 @@
                     if (targetUser && targetUser.discordInfo) {
                         order.items.forEach(item => {
                             const prod = products.find(p => p.id === item.p.id);
-                            if (prod && prod.discordRoleId) {
-                                grantDiscordRole(targetUser.discordInfo.id, prod.discordRoleId);
+                            const roleId = prod?.roleIds?.[item.plan] || prod?.discordRoleId;
+                            if (roleId) {
+                                grantDiscordRole(targetUser.discordInfo.id, roleId);
                             } else {
-                                console.warn(`Skipping role grant: Product "${item.p.name}" has no Role ID set.`);
+                                console.warn(`Skipping role grant: Product "${item.p.name}" (${item.plan}) has no Role ID set.`);
                             }
                         });
                     } else {
@@ -1045,7 +1046,7 @@
                                                         </div>
                                                     </div>
                                                 ))}
-                                                <button onClick={()=>setProducts([...products, {id: Date.now().toString(), name: 'NEW GAME', game: 'GAME', price: 0, monthPrice: 0, lifetimePrice: 0, stock: {day:20, month:5, lifetime:1}, status: 'undetected', features: [], requirements: {support: 'Win 10/11', processor: 'All'}, image_url: '', discordRoleId: ''}])} className="border-2 border-dashed border-border py-10 rounded-[2.5rem] font-black uppercase text-xs opacity-20 hover:opacity-100 hover:border-primary/50 hover:text-primary transition-all tracking-[0.4em]">Add New Inventory</button>
+                                                <button onClick={()=>setProducts([...products, {id: Date.now().toString(), name: 'NEW GAME', game: 'GAME', price: 0, monthPrice: 0, lifetimePrice: 0, stock: {day:20, month:5, lifetime:1}, status: 'undetected', features: [], requirements: {support: 'Win 10/11', processor: 'All'}, image_url: '', roleIds: { day: '', month: '', lifetime: '' } }])} className="border-2 border-dashed border-border py-10 rounded-[2.5rem] font-black uppercase text-xs opacity-20 hover:opacity-100 hover:border-primary/50 hover:text-primary transition-all tracking-[0.4em]">Add New Inventory</button>
                                             </div>
                                         )}
 
@@ -1170,7 +1171,14 @@
                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Product Name</label><input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} className="w-full" /></div>
                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Game Category</label><input value={form.game} onChange={e=>setForm({...form, game:e.target.value})} className="w-full" /></div>
                                     <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Image URL</label><input value={form.image_url} onChange={e=>setForm({...form, image_url:e.target.value})} className="w-full" placeholder="https://..." /></div>
-                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em] text-primary">Discord Role ID</label><input value={form.discordRoleId} onChange={e=>setForm({...form, discordRoleId:e.target.value})} className="w-full border-primary/30" /></div>
+                                    <div className="col-span-2 p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-primary">Discord Role IDs (Automation)</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Role ID</label><input value={form.roleIds?.day || ''} onChange={e=>setForm({...form, roleIds:{...(form.roleIds||{}), day:e.target.value}})} className="w-full border-primary/20" placeholder="ID" /></div>
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Role ID</label><input value={form.roleIds?.month || ''} onChange={e=>setForm({...form, roleIds:{...(form.roleIds||{}), month:e.target.value}})} className="w-full border-primary/20" placeholder="ID" /></div>
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Lifetime Role ID</label><input value={form.roleIds?.lifetime || ''} onChange={e=>setForm({...form, roleIds:{...(form.roleIds||{}), lifetime:e.target.value}})} className="w-full border-primary/20" placeholder="ID" /></div>
+                                        </div>
+                                    </div>
                                     <div className="col-span-2"><CustomSelect label="Status" value={form.status} onChange={v => setForm({...form, status: v})} options={[{value:'undetected',label:'UNDETECTED'},{value:'updating',label:'UPDATING'},{value:'detected',label:'DETECTED'},{value:'testing',label:'TESTING'},{value:'at-risk',label:'USE AT YOUR OWN RISK'}]} /></div>
                                     
                                     <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
