@@ -360,7 +360,11 @@
 
             const sendVerificationEmail = async (email, code, templateId) => {
                 try {
-                    const res = await emailjs.send(EMAILJS_SERVICE_ID, templateId, {
+                    if (!window.emailjs) {
+                        console.error("EmailJS not loaded yet.");
+                        return false;
+                    }
+                    const res = await window.emailjs.send(EMAILJS_SERVICE_ID, templateId, {
                         to_email: email,
                         email: email,
                         code: code
@@ -1202,6 +1206,15 @@
                                                 <p className="text-[10px] font-black uppercase opacity-30 tracking-[0.4em] mb-3">Order Confirmation ID</p>
                                                 <p className="text-4xl font-black text-primary tracking-widest mb-6">{orderId}</p>
                                             </div>
+                                            
+                                            <div className="bg-white/5 border border-white/5 p-10 rounded-[2rem] text-left mb-10 space-y-6">
+                                                <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em]">Payment Instructions</p>
+                                                <p className="text-xs text-white/60 font-bold leading-relaxed uppercase tracking-tight italic">
+                                                    To complete your purchase, please join our Discord server and open a <span className="text-white">#payment-ticket</span>. 
+                                                    Provide your Order ID <span className="text-primary">({orderId})</span> and our staff will assist you with the payment process.
+                                                </p>
+                                            </div>
+                                            
                                             <a href="https://discord.gg/szhservices" target="_blank" className="w-full bg-[#5865F2] py-6 rounded-[2rem] font-black text-2xl uppercase italic shadow-glow flex items-center justify-center gap-4 hover:brightness-110 transition-all">JOIN DISCORD <Icon name="external-link" /></a>
                                         </div>
                                     </div>
@@ -1269,9 +1282,9 @@
                                     <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-primary">Pricing (EUR)</p>
                                         <div className="space-y-4">
-                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Price</label><input type="number" value={form.price} onChange={e=>setForm({...form, price:parseFloat(e.target.value)})} className="w-full" /></div>
-                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Price</label><input type="number" value={form.month_price} onChange={e=>setForm({...form, month_price:parseFloat(e.target.value)})} className="w-full" /></div>
-                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Lifetime Price</label><input type="number" value={form.lifetime_price} onChange={e=>setForm({...form, lifetime_price:parseFloat(e.target.value)})} className="w-full" /></div>
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Price</label><input type="number" value={form.price || 0} onChange={e=>setForm({...form, price:parseFloat(e.target.value) || 0})} className="w-full" /></div>
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Price</label><input type="number" value={form.month_price || 0} onChange={e=>setForm({...form, month_price:parseFloat(e.target.value) || 0})} className="w-full" /></div>
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Lifetime Price</label><input type="number" value={form.lifetime_price || 0} onChange={e=>setForm({...form, lifetime_price:parseFloat(e.target.value) || 0})} className="w-full" /></div>
                                         </div>
                                     </div>
 
