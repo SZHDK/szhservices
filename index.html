@@ -221,7 +221,7 @@
 
             // --- INITIAL DATA FETCH ---
             const refreshData = async () => {
-                const { data: pData } = await _supabase.from('products').select('*').order('created_at', { ascending: true });
+                const { data: pData } = await _supabase.from('products').select('*');
                 if (pData) setProducts(pData);
 
                 const { data: oData } = await _supabase.from('orders').select('*').order('timestamp', { ascending: false });
