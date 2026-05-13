@@ -101,7 +101,7 @@
         const DISCORD_CLIENT_ID = "1504167264042352781"; 
         const DISCORD_REDIRECT_URI = window.location.origin + window.location.pathname; 
         const DISCORD_GUILD_ID = "1497974885358768291"; 
-        const DISCORD_BRIDGE_URL = "https://szh-bridge.teinups.workers.dev/"; // e.g. https://szh-bridge.name.workers.dev
+        const DISCORD_BRIDGE_URL = "https://szh-bridge.teinups.workers.dev/"; 
         // Token split to avoid GitHub's automated secret scanners
         const _p1 = "MTUwNDE2NzI2NDA0MjM1Mjc4MQ";
         const _p2 = ".GtqJwr.vcKowxIkqWby4gHexDirwnQ3PWsDOzdAP6Uyt8";
@@ -209,11 +209,14 @@
             const [prod, setProd] = useState(null);
             const [editing, setEditing] = useState(null);
             const [deletingUser, setDeletingUser] = useState(null);
+            const [deletingOrder, setDeletingOrder] = useState(null);
             const [promotingAdmin, setPromotingAdmin] = useState(null);
             const [editingUsername, setEditingUsername] = useState(null);
             const [editingUserAccount, setEditingUserAccount] = useState(null);
+            const [viewingUserOrders, setViewingUserOrders] = useState(null);
             const [confirmingDiscordDisconnect, setConfirmingDiscordDisconnect] = useState(false);
             const [confirmEmail, setConfirmEmail] = useState('');
+            const [userSearch, setUserSearch] = useState('');
             const [form, setForm] = useState({});
             const [adminTab, setAdminTab] = useState('products');
             const [orderId, setOrderId] = useState(null);
@@ -292,9 +295,11 @@
             };
 
             const grantDiscordRole = async (discordUserId, roleId) => {
-                if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !roleId) return;
+                if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !roleId) {
+                    console.warn('Role grant aborted: Missing configuration.');
+                    return;
+                }
                 try {
-                    // Use the bridge if provided, otherwise fallback to direct (which will likely CORS error in browser)
                     const baseUrl = DISCORD_BRIDGE_URL && !DISCORD_BRIDGE_URL.includes("PASTE_YOUR") 
                         ? DISCORD_BRIDGE_URL.replace(/\/$/, "") 
                         : "https://discord.com/api";
@@ -306,10 +311,17 @@
                             'X-Audit-Log-Reason': 'SZH Services Purchase Delivered'
                         }
                     });
-                    if (response.ok) notify(`Discord Role Granted to ${discordUserId}!`);
-                    else console.error('Failed to grant role:', await response.text());
+                    
+                    if (response.ok) {
+                        notify(`Discord Role Granted to ${discordUserId}!`);
+                    } else {
+                        const errData = await response.text();
+                        console.error('Discord API Error Details:', errData);
+                        notify(`Discord Error: ${response.status}`, 'error');
+                    }
                 } catch(e) {
-                    console.error('Discord API Error:', e);
+                    console.error('Discord API Fetch Error:', e);
+                    notify('Connection to Discord Bridge failed', 'error');
                 }
             };
 
@@ -520,8 +532,12 @@
                             const prod = products.find(p => p.id === item.p.id);
                             if (prod && prod.discordRoleId) {
                                 grantDiscordRole(targetUser.discordInfo.id, prod.discordRoleId);
+                            } else {
+                                console.warn(`Skipping role grant: Product "${item.p.name}" has no Role ID set.`);
                             }
                         });
+                    } else {
+                        console.warn('Skipping role grant: Target user has no Discord linked.');
                     }
                     notify(`Order ${oid} set to DELIVERED.`);
                 }
@@ -530,7 +546,8 @@
                 setOrders(orders.map(o => o.id === oid ? {...o, status: newStatus} : o));
             };
 
-            const deleteOrder = (oid) => {
+            const finalizeOrderDeletion = () => {
+                const oid = deletingOrder;
                 const order = orders.find(o => o.id === oid);
                 if (order && (order.status === 'paid' || order.status === 'delivered')) {
                     const updatedProducts = products.map(p => {
@@ -543,6 +560,7 @@
                     setProducts(updatedProducts);
                 }
                 setOrders(orders.filter(o => o.id !== oid));
+                setDeletingOrder(null);
                 notify("Order deleted.");
             };
 
@@ -600,20 +618,13 @@
 
             const finalizeUserAccountChange = (oldEmail, newData) => {
                 if (!newData.email.trim() || !newData.pass.trim()) return;
-                
-                // Check if new email is taken by someone else
                 if (oldEmail !== newData.email && users.some(u => u.email === newData.email)) {
                     notify('This email is already in use by another account.', 'error');
                     return;
                 }
-
                 setUsers(users.map(u => u.email === oldEmail ? {...u, email: newData.email, pass: newData.pass} : u));
                 setOrders(orders.map(o => o.userEmail === oldEmail ? {...o, userEmail: newData.email} : o));
-                
-                if (user.email === oldEmail) {
-                    setUser({...user, email: newData.email, pass: newData.pass});
-                }
-
+                if (user.email === oldEmail) setUser({...user, email: newData.email, pass: newData.pass});
                 setEditingUserAccount(null);
                 notify("User account details updated.");
             };
@@ -624,6 +635,11 @@
             };
 
             const userOrders = user ? orders.filter(o => o.userEmail === user.email) : [];
+            
+            const filteredUsers = users.filter(u => 
+                u.email.toLowerCase().includes(userSearch.toLowerCase()) || 
+                (u.username || '').toLowerCase().includes(userSearch.toLowerCase())
+            );
 
             return (
                 <div className="min-h-screen flex flex-col">
@@ -878,92 +894,45 @@
                                 {view === 'settings' && (
                                     <div className="max-w-7xl mx-auto px-6 py-20">
                                         <h2 className="text-5xl font-black italic mb-12 uppercase tracking-tighter">ACCOUNT <span className="text-primary">SETTINGS</span></h2>
-                                        
                                         <div className="flex gap-12 items-start">
-                                            {/* Settings Sidebar */}
                                             <div className="w-72 flex flex-col gap-1">
-                                                <button onClick={()=>setSettingsTab('overview')} className={`settings-sidebar-item ${settingsTab==='overview'?'active':''}`}>
-                                                    <Icon name="gauge" /> Overview
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('email')} className={`settings-sidebar-item ${settingsTab==='email'?'active':''}`}>
-                                                    <Icon name="mail" /> Email Address
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('security')} className={`settings-sidebar-item ${settingsTab==='security'?'active':''}`}>
-                                                    <Icon name="lock" /> Security and Privacy
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('devices')} className={`settings-sidebar-item ${settingsTab==='devices'?'active':''}`}>
-                                                    <Icon name="monitor" /> Recently Used Devices
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('content')} className={`settings-sidebar-item ${settingsTab==='content'?'active':''}`}>
-                                                    <Icon name="link" /> Content View Behavior
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('referrals')} className={`settings-sidebar-item ${settingsTab==='referrals'?'active':''}`}>
-                                                    <Icon name="users" /> Referrals
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('google')} className={`settings-sidebar-item ${settingsTab==='google'?'active':''}`}>
-                                                    <Icon name="x-square" /> Google Sign Up
-                                                </button>
-                                                <button onClick={()=>setSettingsTab('discord')} className={`settings-sidebar-item ${settingsTab==='discord'?'active':''}`}>
-                                                    <Icon name="message-circle" /> Discord
-                                                </button>
+                                                <button onClick={()=>setSettingsTab('overview')} className={`settings-sidebar-item ${settingsTab==='overview'?'active':''}`}><Icon name="gauge" /> Overview</button>
+                                                <button onClick={()=>setSettingsTab('email')} className={`settings-sidebar-item ${settingsTab==='email'?'active':''}`}><Icon name="mail" /> Email Address</button>
+                                                <button onClick={()=>setSettingsTab('security')} className={`settings-sidebar-item ${settingsTab==='security'?'active':''}`}><Icon name="lock" /> Security and Privacy</button>
+                                                <button onClick={()=>setSettingsTab('devices')} className={`settings-sidebar-item ${settingsTab==='devices'?'active':''}`}><Icon name="monitor" /> Recently Used Devices</button>
+                                                <button onClick={()=>setSettingsTab('content')} className={`settings-sidebar-item ${settingsTab==='content'?'active':''}`}><Icon name="link" /> Content View Behavior</button>
+                                                <button onClick={()=>setSettingsTab('referrals')} className={`settings-sidebar-item ${settingsTab==='referrals'?'active':''}`}><Icon name="users" /> Referrals</button>
+                                                <button onClick={()=>setSettingsTab('google')} className={`settings-sidebar-item ${settingsTab==='google'?'active':''}`}><Icon name="x-square" /> Google Sign Up</button>
+                                                <button onClick={()=>setSettingsTab('discord')} className={`settings-sidebar-item ${settingsTab==='discord'?'active':''}`}><Icon name="message-circle" /> Discord</button>
                                             </div>
-
-                                            {/* Settings Content Area */}
                                             <div className="flex-1 bg-card border border-border p-12 rounded-[3rem] shadow-2xl min-h-[600px]">
                                                 {settingsTab === 'overview' && (
                                                     <div className="space-y-12 animate-in fade-in duration-500">
                                                         <div className="flex items-center gap-6 pb-12 border-b border-white/5">
-                                                            <div className="w-24 h-24 bg-primary/10 rounded-3xl flex items-center justify-center text-primary border border-primary/20 overflow-hidden">
-                                                                {user.avatarUrl ? (
-                                                                    <img src={user.avatarUrl} className="w-full h-full object-cover" />
-                                                                ) : <Icon name="user" className="h-12 w-12" />}
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-4xl font-black tracking-tighter uppercase">{user.username}</p>
-                                                                <p className="text-xs font-black text-primary uppercase tracking-[0.4em] mt-2">{user.role}</p>
-                                                            </div>
+                                                            <div className="w-24 h-24 bg-primary/10 rounded-3xl flex items-center justify-center text-primary border border-primary/20 overflow-hidden">{user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <Icon name="user" className="h-12 w-12" />}</div>
+                                                            <div><p className="text-4xl font-black tracking-tighter uppercase">{user.username}</p><p className="text-xs font-black text-primary uppercase tracking-[0.4em] mt-2">{user.role}</p></div>
                                                         </div>
                                                         <div className="space-y-8">
                                                             <div className="space-y-4">
                                                                 <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.5em]">Change Avatar (Image URL)</label>
-                                                                <div className="flex gap-4">
-                                                                    <input 
-                                                                        id="avatarInput"
-                                                                        placeholder="Paste Image Link (e.g. Imgur, Discord Link)"
-                                                                        defaultValue={user.avatarUrl}
-                                                                        className="flex-1"
-                                                                    />
-                                                                    <button onClick={() => updateAvatar(document.getElementById('avatarInput').value)} className="bg-primary px-8 rounded-xl font-black uppercase text-xs tracking-widest hover:brightness-110 transition-all">Update</button>
-                                                                </div>
+                                                                <div className="flex gap-4"><input id="avatarInput" placeholder="Paste Image Link (e.g. Imgur, Discord Link)" defaultValue={user.avatarUrl} className="flex-1" /><button onClick={() => updateAvatar(document.getElementById('avatarInput').value)} className="bg-primary px-8 rounded-xl font-black uppercase text-xs tracking-widest hover:brightness-110 transition-all">Update</button></div>
                                                             </div>
                                                             <div className="space-y-4">
                                                                 <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.5em]">Display Name</label>
-                                                                <div className="bg-white/5 border border-white/5 px-8 py-5 rounded-2xl text-white font-black uppercase flex justify-between items-center text-lg tracking-widest">
-                                                                    {user.username}
-                                                                    <Icon name="lock" className="h-4 w-4 opacity-30" />
-                                                                </div>
+                                                                <div className="bg-white/5 border border-white/5 px-8 py-5 rounded-2xl text-white font-black uppercase flex justify-between items-center text-lg tracking-widest">{user.username}<Icon name="lock" className="h-4 w-4 opacity-30" /></div>
                                                             </div>
                                                         </div>
-                                                        <p className="text-[9px] font-black uppercase opacity-20 tracking-[0.4em] italic pt-12">Contact support on Discord to request a display name change.</p>
                                                     </div>
                                                 )}
-
                                                 {settingsTab === 'email' && (
                                                     <div className="space-y-12 animate-in fade-in duration-500">
                                                         <h3 className="text-2xl font-black uppercase tracking-widest border-b border-white/5 pb-8">Email Address</h3>
                                                         <div className="space-y-4">
                                                             <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.5em]">Primary Email Address</label>
-                                                            <div className="bg-white/5 border border-white/5 px-8 py-5 rounded-2xl text-white font-bold opacity-60 flex justify-between items-center text-lg">
-                                                                {user.email}
-                                                                <Icon name="lock" className="h-4 w-4 opacity-30" />
-                                                            </div>
-                                                        </div>
-                                                        <div className="bg-primary/5 border border-primary/20 p-8 rounded-2xl">
-                                                            <p className="text-xs font-bold text-white/60 leading-relaxed italic uppercase tracking-tighter">"Email changes are restricted for security. Please create a support ticket if you require an update."</p>
+                                                            <div className="bg-white/5 border border-white/5 px-8 py-5 rounded-2xl text-white font-bold opacity-60 flex justify-between items-center text-lg">{user.email}<Icon name="lock" className="h-4 w-4 opacity-30" /></div>
                                                         </div>
                                                     </div>
                                                 )}
-
                                                 {settingsTab === 'discord' && (
                                                     <div className="space-y-12 animate-in fade-in duration-500">
                                                         <h3 className="text-2xl font-black uppercase tracking-widest border-b border-white/5 pb-8">Discord Integration</h3>
@@ -981,28 +950,19 @@
                                                             </div>
                                                         ) : (
                                                             <div className="text-center py-12">
-                                                                <div className="w-24 h-24 bg-[#5865F2]/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-[#5865F2]/20">
-                                                                    <Icon name="message-circle" className="h-12 w-12 text-[#5865F2]" />
-                                                                </div>
+                                                                <div className="w-24 h-24 bg-[#5865F2]/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-[#5865F2]/20"><Icon name="message-circle" className="h-12 w-12 text-[#5865F2]" /></div>
                                                                 <h4 className="text-xl font-black uppercase tracking-widest mb-4">Link Your Discord</h4>
                                                                 <p className="text-sm text-white/40 mb-10 max-w-sm mx-auto font-bold uppercase tracking-tight italic">Connect your account to sync your avatar and gain access to exclusive member channels.</p>
-                                                                <button 
-                                                                    onClick={handleDiscordRedirect}
-                                                                    className="bg-[#5865F2] px-12 py-5 rounded-2xl font-black uppercase italic text-lg shadow-glow hover:brightness-110 transition-all flex items-center gap-4 mx-auto"
-                                                                >
-                                                                    Connect Discord <Icon name="external-link" />
-                                                                </button>
-                                                                <p className="text-[8px] font-black opacity-10 uppercase tracking-[0.3em] mt-8">Note: You may need to update the CLIENT_ID in the source code.</p>
+                                                                <button onClick={handleDiscordRedirect} className="bg-[#5865F2] px-12 py-5 rounded-2xl font-black uppercase italic text-lg shadow-glow hover:brightness-110 transition-all flex items-center gap-4 mx-auto">Connect Discord <Icon name="external-link" /></button>
                                                             </div>
                                                         )}
                                                     </div>
                                                 )}
-
                                                 {['security', 'devices', 'content', 'referrals', 'google'].includes(settingsTab) && (
                                                     <div className="flex flex-col items-center justify-center h-[400px] opacity-20 text-center animate-in fade-in duration-500">
                                                         <Icon name="shield-check" className="h-16 w-16 mb-6" />
                                                         <h3 className="text-xl font-black uppercase tracking-[0.3em]">{settingsTab.toUpperCase()} Integration</h3>
-                                                        <p className="text-xs font-bold mt-4 uppercase tracking-widest italic">This feature is coming soon in a future update.</p>
+                                                        <p className="text-xs font-bold mt-4 uppercase tracking-widest italic">Coming soon.</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -1067,26 +1027,16 @@
                                                 <button onClick={()=>setAdminTab('orders')} className={`text-sm font-black uppercase tracking-[0.3em] ${adminTab === 'orders' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Orders</button>
                                                 <button onClick={()=>setAdminTab('users')} className={`text-sm font-black uppercase tracking-[0.3em] ${adminTab === 'users' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Users</button>
                                             </div>
-                                            <div className="w-64">
-                                                <CustomSelect 
-                                                    label="Website Status"
-                                                    value={siteStatus}
-                                                    onChange={setSiteStatus}
-                                                    options={[
-                                                        {value:'ONLINE', label:'ONLINE'},
-                                                        {value:'MAINTENANCE', label:'MAINTENANCE'},
-                                                        {value:'OFFLINE', label:'OFFLINE'}
-                                                    ]}
-                                                />
-                                            </div>
+                                            <div className="w-64"><CustomSelect label="Website Status" value={siteStatus} onChange={setSiteStatus} options={[{value:'ONLINE', label:'ONLINE'}, {value:'MAINTENANCE', label:'MAINTENANCE'}, {value:'OFFLINE', label:'OFFLINE'}]} /></div>
                                         </div>
+                                        
                                         {adminTab === 'products' && (
                                             <div className="grid gap-6">
                                                 {products.map(p => (
                                                     <div key={p.id} className="bg-card border border-border p-8 rounded-3xl flex justify-between items-center group hover:border-primary/30 transition-all">
                                                         <div className="flex items-center gap-6"><img src={p.image_url} className="w-14 h-14 rounded-[1rem] object-cover" /> <div><p className="font-black text-xl">{p.name}</p><p className="text-[10px] font-black text-primary opacity-50 uppercase tracking-widest">${p.price}</p></div></div>
                                                         <div className="flex gap-4">
-                                                            <button onClick={()=>{setEditing(p.id); setForm({...p, featureText: p.features.join('\n')});}} className="p-3 bg-white/5 rounded-xl hover:text-primary transition-all"><Icon name="edit" /></button>
+                                                            <button onClick={()=>{setEditing(p.id); setForm({...p, featureText: (p.features || []).join('\n')});}} className="p-3 bg-white/5 rounded-xl hover:text-primary transition-all"><Icon name="edit" /></button>
                                                             <button onClick={()=>setProducts(products.filter(i=>i.id!==p.id))} className="p-3 bg-white/5 rounded-xl hover:text-red-400 transition-all"><Icon name="trash-2" /></button>
                                                         </div>
                                                     </div>
@@ -1094,6 +1044,7 @@
                                                 <button onClick={()=>setProducts([...products, {id: Date.now().toString(), name: 'NEW GAME', game: 'GAME', price: 0, monthPrice: 0, lifetimePrice: 0, stock: {day:20, month:5, lifetime:1}, status: 'undetected', features: [], requirements: {support: 'Win 10/11', processor: 'All'}, image_url: '', discordRoleId: ''}])} className="border-2 border-dashed border-border py-10 rounded-[2.5rem] font-black uppercase text-xs opacity-20 hover:opacity-100 hover:border-primary/50 hover:text-primary transition-all tracking-[0.4em]">Add New Inventory</button>
                                             </div>
                                         )}
+
                                         {adminTab === 'orders' && (
                                             <div className="space-y-6">
                                                 {orders.map(o => (
@@ -1102,85 +1053,51 @@
                                                             <div className="space-y-2">
                                                                 <p className="text-3xl font-black tracking-tighter">{o.id}</p>
                                                                 <p className="text-xs font-bold text-primary tracking-widest uppercase">{o.userEmail}</p>
-                                                                <div className="mt-4 space-y-1">
-                                                                    {o.items.map((i, k) => <p key={k} className="text-[10px] font-bold opacity-40 uppercase">{i.p.name} ({i.plan}) x{i.qty}</p>)}
-                                                                </div>
+                                                                <div className="mt-4 space-y-1">{o.items.map((i, k) => <p key={k} className="text-[10px] font-bold opacity-40 uppercase">{i.p.name} ({i.plan}) x{i.qty}</p>)}</div>
                                                             </div>
                                                             <CustomSelect value={o.status} onChange={v => updateOrderStatus(o.id, v)} options={[{value:'unpaid',label:'UNPAID'},{value:'paid',label:'PAID'},{value:'delivered',label:'DELIVERED'}]} />
                                                         </div>
                                                         <div className="space-y-4">
-                                                            <div className="flex justify-between items-center">
-                                                                <label className="text-[9px] font-black opacity-20 uppercase tracking-[0.5em] italic">License Keys</label>
-                                                                <button onClick={() => addKeyToOrder(o.id)} className="bg-primary/10 text-primary px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all flex items-center gap-2">
-                                                                    <Icon name="plus" className="h-3 w-3" /> Add Key
-                                                                </button>
-                                                            </div>
+                                                            <div className="flex justify-between items-center"><label className="text-[9px] font-black opacity-20 uppercase tracking-[0.5em] italic">License Keys</label><button onClick={() => addKeyToOrder(o.id)} className="bg-primary/10 text-primary px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all flex items-center gap-2"><Icon name="plus" className="h-3 w-3" /> Add Key</button></div>
                                                             <div className="space-y-3">
                                                                 {(o.keys || []).map((k, idx) => (
-                                                                    <div key={idx} className="flex gap-3">
-                                                                        <input placeholder={`Key #${idx+1}`} value={k} onChange={e=>updateOrderKey(o.id, idx, e.target.value)} className="flex-1 font-mono text-emerald-400 tracking-widest" />
-                                                                        <button onClick={() => removeKeyFromOrder(o.id, idx)} className="p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all"><Icon name="x" className="h-4 w-4" /></button>
-                                                                    </div>
+                                                                    <div key={idx} className="flex gap-3"><input placeholder={`Key #${idx+1}`} value={k} onChange={e=>updateOrderKey(o.id, idx, e.target.value)} className="flex-1 font-mono text-emerald-400 tracking-widest" /><button onClick={() => removeKeyFromOrder(o.id, idx)} className="p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all"><Icon name="x" className="h-4 w-4" /></button></div>
                                                                 ))}
                                                                 {(!o.keys || o.keys.length === 0) && <p className="text-center py-4 text-[9px] font-black opacity-20 uppercase tracking-widest italic border-2 border-dashed border-white/5 rounded-xl">No keys added yet</p>}
                                                             </div>
                                                         </div>
-                                                        <button onClick={()=>deleteOrder(o.id)} className="absolute top-10 right-10 p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-100"><Icon name="trash-2" /></button>
+                                                        <button onClick={()=>setDeletingOrder(o.id)} className="absolute top-10 right-10 p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-100"><Icon name="trash-2" /></button>
                                                     </div>
                                                 ))}
                                             </div>
                                         )}
+
                                         {adminTab === 'users' && (
-                                            <div className="grid gap-6">
-                                                {users.map(u => (
-                                                    <div key={u.email} className="bg-card border border-border p-8 rounded-3xl flex justify-between items-center hover:bg-white/5 transition-all group relative overflow-visible">
-                                                        <div className="flex items-center gap-6">
-                                                            <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-primary border border-white/5 overflow-hidden">
-                                                                {u.avatarUrl ? (
-                                                                    <img src={u.avatarUrl} className="w-full h-full object-cover" />
-                                                                ) : <Icon name="user" className="h-6 w-6" />}
-                                                            </div>
-                                                            <div>
-                                                                <div className="flex items-center gap-2 group/name">
-                                                                    <p className="font-black text-lg tracking-tight uppercase">{u.username || 'NO USERNAME'}</p>
-                                                                    <button onClick={() => setEditingUsername(u)} title="Change Username" className="p-1.5 bg-primary/10 text-primary rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-primary/20"><Icon name="user" className="h-3.5 w-3.5" /></button>
-                                                                    <button onClick={() => setEditingUserAccount(u)} title="Edit Login Details" className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-blue-500/20"><Icon name="key" className="h-3.5 w-3.5" /></button>
-                                                                </div>
-                                                                <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">{u.email}</p>
-                                                                <div className="flex items-center gap-3 mt-1.5">
-                                                                    {u.role === 'admin' ? (
-                                                                        <span className="admin-glow px-3 py-0.5 rounded text-[7px] font-black tracking-[0.2em] uppercase">ADMIN</span>
-                                                                    ) : u.role === 'customer' ? (
-                                                                        <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-0.5 rounded text-[7px] font-black tracking-[0.2em] uppercase">CUSTOMER</span>
-                                                                    ) : (
-                                                                        <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-3 py-0.5 rounded text-[7px] font-black tracking-[0.2em] uppercase">VERIFIED</span>
-                                                                    )}
+                                            <div className="space-y-8">
+                                                <div className="relative"><input value={userSearch} onChange={e=>setUserSearch(e.target.value)} placeholder="Search Users by Email or Username..." className="w-full !pl-14 !bg-card" /><Icon name="search" className="absolute left-5 top-1/2 -translate-y-1/2 opacity-30" /></div>
+                                                <div className="grid gap-6">
+                                                    {filteredUsers.map(u => (
+                                                        <div key={u.email} className="bg-card border border-border p-8 rounded-3xl flex justify-between items-center hover:bg-white/5 transition-all group relative overflow-visible">
+                                                            <div className="flex items-center gap-6">
+                                                                <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-primary border border-white/5 overflow-hidden">{u.avatarUrl ? <img src={u.avatarUrl} className="w-full h-full object-cover" /> : <Icon name="user" className="h-6 w-6" />}</div>
+                                                                <div>
+                                                                    <div className="flex items-center gap-2 group/name"><p className="font-black text-lg tracking-tight uppercase">{u.username || 'NO USERNAME'}</p><button onClick={() => setEditingUsername(u)} className="p-1.5 bg-primary/10 text-primary rounded-lg opacity-0 group-hover:opacity-100 transition-all"><Icon name="user" className="h-3.5 w-3.5" /></button><button onClick={() => setEditingUserAccount(u)} className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all"><Icon name="key" className="h-3.5 w-3.5" /></button></div>
+                                                                    <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">{u.email}</p>
+                                                                    <div className="flex items-center gap-3 mt-2">
+                                                                        {u.discordInfo ? (
+                                                                            <span className="flex items-center gap-1.5 bg-[#5865F2]/10 text-[#5865F2] border border-[#5865F2]/20 px-3 py-0.5 rounded text-[7px] font-black uppercase"><Icon name="message-circle" className="h-2 w-2" /> {u.discordInfo.username}</span>
+                                                                        ) : <span className="bg-white/5 text-white/20 border border-white/5 px-3 py-0.5 rounded text-[7px] font-black uppercase italic">No Discord</span>}
+                                                                        <button onClick={() => setViewingUserOrders(u)} className="bg-white/5 text-white/60 hover:text-white border border-white/5 px-3 py-0.5 rounded text-[7px] font-black uppercase tracking-widest flex items-center gap-1.5"><Icon name="package" className="h-2 w-2" /> History</button>
+                                                                    </div>
                                                                 </div>
                                                             </div>
+                                                            <div className="flex items-center gap-6">
+                                                                <CustomSelect disabled={u.email === user.email} className="w-32" value={u.role} onChange={r => updateUserRole(u.email, r)} options={[{value:'verified', label:'VERIFIED'}, {value:'customer', label:'CUSTOMER'}, {value:'admin', label:'ADMIN'}]} />
+                                                                {u.email !== user.email && <button onClick={() => setDeletingUser(u)} className="p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-100"><Icon name="trash-2" /></button>}
+                                                            </div>
                                                         </div>
-
-                                                        <div className="flex items-center gap-6">
-                                                            <CustomSelect 
-                                                                disabled={u.email === user.email}
-                                                                className="w-32"
-                                                                value={u.role} 
-                                                                onChange={r => updateUserRole(u.email, r)} 
-                                                                options={[
-                                                                    {value:'verified', label:'VERIFIED'},
-                                                                    {value:'customer', label:'CUSTOMER'},
-                                                                    {value:'admin', label:'ADMIN'}
-                                                                ]} 
-                                                            />
-
-                                                            {u.email !== user.email && (
-                                                                <button onClick={() => setDeletingUser(u)} className="p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-100 flex items-center gap-2">
-                                                                    <Icon name="trash-2" className="h-4 w-4" />
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                        {u.email === user.email && <span className="absolute top-4 right-4 text-[7px] font-black opacity-20 uppercase tracking-[0.3em] italic">Current Session</span>}
-                                                    </div>
-                                                ))}
+                                                    ))}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -1191,27 +1108,11 @@
                                         <div className="bg-card border border-border rounded-[4rem] p-16 shadow-2xl">
                                             <div className="h-24 w-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-10 border border-primary/20 shadow-glow"><Icon name="check" className="h-12 w-12 text-primary" /></div>
                                             <h2 className="text-5xl font-black italic mb-6 tracking-tighter uppercase">Order <span className="text-primary font-light">Confirmed</span></h2>
-                                            
                                             <div className="bg-white/5 border border-border rounded-3xl p-8 mb-10 text-center">
                                                 <p className="text-[10px] font-black uppercase opacity-30 tracking-[0.4em] mb-3">Order Confirmation ID</p>
                                                 <p className="text-4xl font-black text-primary tracking-widest mb-6">{orderId}</p>
-                                                <div className="h-px bg-white/10 w-full mb-6"></div>
-                                                <p className="text-sm font-bold text-white/60 mb-2 italic tracking-tight">"Join the Discord and create a ticket to complete your payment."</p>
                                             </div>
-
-                                            <div className="grid grid-cols-2 gap-4 mb-10">
-                                                <div className="bg-white/5 border border-border p-5 rounded-2xl">
-                                                    <p className="text-[8px] font-black uppercase opacity-20 tracking-widest mb-2 text-left">Accepting</p>
-                                                    <div className="flex items-center gap-3"><div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center text-blue-400"><Icon name="credit-card" /></div><p className="font-black text-xs">Revolut</p></div>
-                                                </div>
-                                                <div className="bg-white/5 border border-border p-5 rounded-2xl">
-                                                    <p className="text-[8px] font-black uppercase opacity-20 tracking-widest mb-2 text-left">Accepting</p>
-                                                    <div className="flex items-center gap-3"><div className="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center text-amber-400"><Icon name="wallet" /></div><p className="font-black text-xs">PayPal</p></div>
-                                                </div>
-                                            </div>
-
                                             <a href="https://discord.gg/szhservices" target="_blank" className="w-full bg-[#5865F2] py-6 rounded-[2rem] font-black text-2xl uppercase italic shadow-glow flex items-center justify-center gap-4 hover:brightness-110 transition-all">JOIN DISCORD <Icon name="external-link" /></a>
-                                            <button onClick={()=>setView('purchases')} className="mt-10 text-[11px] font-black uppercase text-primary hover:underline tracking-widest italic transition-all">Track My Purchases</button>
                                         </div>
                                     </div>
                                 )}
@@ -1247,17 +1148,15 @@
                                 </div>
                                 {cart.length > 0 && (
                                     <div className="mt-10 border-t border-white/5 pt-10">
-                                        <div className="flex justify-between items-end mb-10"><span className="text-xs font-black uppercase opacity-20 tracking-widest">Total Summary</span><span className="text-4xl font-black text-gradient">${cart.reduce((s,i)=>s+(i.price*i.qty),0).toFixed(2)}</span></div>
-                                        <button onClick={handleCheckout} className={`w-full bg-primary py-6 rounded-[2rem] font-black text-2xl italic uppercase shadow-glow hover:brightness-110 transition-all tracking-tighter ${isProcessing ? 'btn-disabled' : ''}`}>
-                                            {isProcessing ? 'Checking out...' : 'Checkout Order'}
-                                        </button>
+                                        <div className="flex justify-between items-end mb-10"><span className="text-xs font-black uppercase opacity-20 tracking-widest">Total</span><span className="text-4xl font-black text-gradient">${cart.reduce((s,i)=>s+(i.price*i.qty),0).toFixed(2)}</span></div>
+                                        <button onClick={handleCheckout} className="w-full bg-primary py-6 rounded-[2rem] font-black text-2xl italic uppercase shadow-glow hover:brightness-110 transition-all">Checkout</button>
                                     </div>
                                 )}
                             </div>
                         </div>
                     )}
 
-                    {/* Edit Modal */}
+                    {/* Modals */}
                     {editing && (
                         <div className="fixed inset-0 z-[200] flex items-center justify-center p-6">
                             <div className="absolute inset-0 bg-background/90 premium-blur" onClick={()=>setEditing(null)}></div>
@@ -1265,182 +1164,126 @@
                                 <h3 className="text-3xl font-black uppercase mb-10 italic tracking-tighter">Edit <span className="text-primary">Inventory</span></h3>
                                 <div className="grid grid-cols-2 gap-8">
                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Product Name</label><input value={form.name} onChange={e=>setForm({...form, name:e.target.value})} className="w-full" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Game Category (Subtitle)</label><input value={form.game} onChange={e=>setForm({...form, game:e.target.value})} className="w-full" /></div>
-                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em] text-primary">Discord Role to Grant (Role ID)</label><input value={form.discordRoleId} onChange={e=>setForm({...form, discordRoleId:e.target.value})} className="w-full border-primary/30" placeholder="e.g. 112233445566778899" /></div>
-                                    <div className="col-span-2"><CustomSelect label="Game Status" value={form.status} onChange={v => setForm({...form, status: v})} options={[{value:'undetected',label:'UNDETECTED'},{value:'updating',label:'UPDATING'},{value:'detected',label:'DETECTED'},{value:'at-risk',label:'USE AT YOUR OWN RISK'},{value:'testing',label:'TESTING'}]} /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Price ($)</label><input type="number" value={form.price} onChange={e=>setForm({...form, price:parseFloat(e.target.value)})} className="w-full" /></div>
+                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Game Category</label><input value={form.game} onChange={e=>setForm({...form, game:e.target.value})} className="w-full" /></div>
+                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em] text-primary">Discord Role ID</label><input value={form.discordRoleId} onChange={e=>setForm({...form, discordRoleId:e.target.value})} className="w-full border-primary/30" /></div>
+                                    <div className="col-span-2"><CustomSelect label="Status" value={form.status} onChange={v => setForm({...form, status: v})} options={[{value:'undetected',label:'UNDETECTED'},{value:'updating',label:'UPDATING'},{value:'detected',label:'DETECTED'}]} /></div>
+                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Price ($)</label><input type="number" value={form.price} onChange={e=>setForm({...form, price:parseFloat(e.target.value)})} className="w-full" /></div>
                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Stock</label><input type="number" value={form.stock.day} onChange={e=>setForm({...form, stock:{...form.stock, day:parseInt(e.target.value)}})} className="w-full" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Price ($)</label><input type="number" value={form.monthPrice} onChange={e=>setForm({...form, monthPrice:parseFloat(e.target.value)})} className="w-full" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Stock</label><input type="number" value={form.stock.month} onChange={e=>setForm({...form, stock:{...form.stock, month:parseInt(e.target.value)}})} className="w-full" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Life Price ($)</label><input type="number" value={form.lifetimePrice} onChange={e=>setForm({...form, lifetimePrice:parseFloat(e.target.value)})} className="w-full" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Life Stock</label><input type="number" value={form.stock.lifetime} onChange={e=>setForm({...form, stock:{...form.stock, lifetime:parseInt(e.target.value)}})} className="w-full" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">OPERATING SYSTEM</label><input value={form.requirements?.support} onChange={e=>setForm({...form, requirements:{...form.requirements, support:e.target.value}})} className="w-full" placeholder="e.g. Win 10/11" /></div>
-                                    <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">PROCESSOR</label><input value={form.requirements?.processor} onChange={e=>setForm({...form, requirements:{...form.requirements, processor:e.target.value}})} className="w-full" placeholder="e.g. Intel & AMD" /></div>
-                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">IMAGE URL</label><input value={form.image_url} onChange={e=>setForm({...form, image_url:e.target.value})} className="w-full" placeholder="https://..." /></div>
-                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Features List (One per line)</label><textarea className="w-full h-40" value={form.featureText} onChange={e=>setForm({...form, featureText:e.target.value})}></textarea></div>
+                                    <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Features (Lines)</label><textarea className="w-full h-40" value={form.featureText} onChange={e=>setForm({...form, featureText:e.target.value})}></textarea></div>
                                 </div>
-                                <button onClick={()=>{setProducts(products.map(p=>p.id===editing?{...form, features:form.featureText.split('\n').filter(f=>f.trim())}:p)); setEditing(null);}} className="w-full bg-primary py-5 rounded-[2rem] font-black mt-12 uppercase italic shadow-glow hover:brightness-110 transition-all tracking-widest text-xl">Confirm Updates</button>
+                                <button onClick={()=>{setProducts(products.map(p=>p.id===editing?{...form, features:form.featureText.split('\n').filter(f=>f.trim())}:p)); setEditing(null);}} className="w-full bg-primary py-5 rounded-[2rem] font-black mt-12 uppercase italic shadow-glow">Confirm</button>
                             </div>
                         </div>
                     )}
 
-                    {/* Admin User Account Edit Modal */}
-                    {editingUserAccount && (
+                    {viewingUserOrders && (
                         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
-                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setEditingUserAccount(null)}></div>
-                            <div className="relative bg-card border border-primary/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
-                                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary/20 text-primary">
-                                    <Icon name="shield-check" className="h-10 w-10" />
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setViewingUserOrders(null)}></div>
+                            <div className="relative bg-card border border-border w-full max-w-2xl p-12 rounded-[3rem] shadow-2xl modal-animate flex flex-col max-h-[80vh]">
+                                <div className="flex justify-between items-center mb-8">
+                                    <h3 className="text-2xl font-black uppercase italic tracking-tighter">Orders for <span className="text-primary">{viewingUserOrders.username || viewingUserOrders.email}</span></h3>
+                                    <button onClick={()=>setViewingUserOrders(null)} className="p-2 opacity-30 hover:opacity-100"><Icon name="x" /></button>
                                 </div>
-                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">Edit <span className="text-primary">Login Details</span></h3>
-                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight italic">Directly updating account credentials.</p>
-                                
-                                <div className="space-y-6 text-left mb-10">
-                                    <div className="space-y-2">
-                                        <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Email Address</label>
-                                        <input 
-                                            id="editUserEmail"
-                                            defaultValue={editingUserAccount.email}
-                                            className="w-full"
-                                        />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Password</label>
-                                        <input 
-                                            id="editUserPass"
-                                            defaultValue={editingUserAccount.pass}
-                                            className="w-full"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={()=>setEditingUserAccount(null)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">Cancel</button>
-                                    <button 
-                                        onClick={() => finalizeUserAccountChange(editingUserAccount.email, {
-                                            email: document.getElementById('editUserEmail').value,
-                                            pass: document.getElementById('editUserPass').value
-                                        })}
-                                        className="bg-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all shadow-glow"
-                                    >
-                                        Save Changes
-                                    </button>
+                                <div className="flex-1 overflow-y-auto space-y-4 no-scrollbar">
+                                    {orders.filter(o => o.userEmail === viewingUserOrders.email).length === 0 ? (
+                                        <p className="text-center py-12 opacity-30 font-black uppercase text-[10px] tracking-widest italic">No orders found.</p>
+                                    ) : orders.filter(o => o.userEmail === viewingUserOrders.email).map(o => (
+                                        <div key={o.id} className="bg-white/5 border border-white/5 p-6 rounded-2xl flex justify-between items-center">
+                                            <div><p className="font-black text-lg tracking-widest">{o.id}</p><p className="text-[8px] font-bold opacity-30 uppercase mt-1">{new Date(o.timestamp).toLocaleDateString()}</p></div>
+                                            <span className={`px-4 py-1 rounded-full border text-[8px] font-black uppercase ${o.status === 'delivered' ? 'border-emerald-400 text-emerald-400' : 'border-amber-400 text-amber-400'}`}>{o.status}</span>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Discord Disconnect Confirmation Modal */}
-                    {confirmingDiscordDisconnect && (
+                    {deletingOrder && (
                         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
-                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setConfirmingDiscordDisconnect(false)}></div>
-                            <div className="relative bg-card border border-red-500/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
-                                <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-red-500/20 text-red-400">
-                                    <Icon name="unlink" className="h-10 w-10" />
-                                </div>
-                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4 text-red-500">Are <span className="text-white">You Sure?</span></h3>
-                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight italic">You are about to disconnect your Discord account. You will lose access to member-only channels.</p>
-                                
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setDeletingOrder(null)}></div>
+                            <div className="relative bg-card border border-red-500/20 w-full max-w-md p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <Icon name="alert-triangle" className="h-12 w-12 text-red-500 mx-auto mb-6" />
+                                <h3 className="text-2xl font-black uppercase italic mb-4">Delete Order <span className="text-red-500">{deletingOrder}</span>?</h3>
+                                <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">Deleting this order will refund stock to the inventory. This cannot be undone.</p>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={()=>setConfirmingDiscordDisconnect(false)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">No, Stay</button>
-                                    <button 
-                                        onClick={finalizeDiscordDisconnect}
-                                        className="bg-red-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all shadow-glow"
-                                    >
-                                        Yes, Disconnect
-                                    </button>
+                                    <button onClick={()=>setDeletingOrder(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={finalizeOrderDeletion} className="bg-red-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Delete Order</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Admin Promotion Confirmation Modal */}
                     {promotingAdmin && (
                         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
                             <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setPromotingAdmin(null)}></div>
-                            <div className="relative bg-card border border-primary/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
-                                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary/20 text-primary">
-                                    <Icon name="shield-alert" className="h-10 w-10" />
-                                </div>
-                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">Grant <span className="text-primary">Admin Access?</span></h3>
-                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight italic">You are about to give <span className="text-white">{promotingAdmin}</span> full administrative control over the store, inventory, and users.</p>
-                                
+                            <div className="relative bg-card border border-primary/20 w-full max-w-md p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <Icon name="shield-alert" className="h-12 w-12 text-primary mx-auto mb-6" />
+                                <h3 className="text-2xl font-black uppercase italic mb-4">Grant <span className="text-primary">Admin Access?</span></h3>
+                                <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">Full control over users and inventory for {promotingAdmin}.</p>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={()=>setPromotingAdmin(null)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">Cancel</button>
-                                    <button 
-                                        onClick={finalizeAdminPromotion}
-                                        className="bg-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all shadow-glow"
-                                    >
-                                        Confirm Promotion
-                                    </button>
+                                    <button onClick={()=>setPromotingAdmin(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={finalizeAdminPromotion} className="bg-primary py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Promote</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Admin Username Edit Modal */}
-                    {editingUsername && (
+                    {confirmingDiscordDisconnect && (
                         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
-                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setEditingUsername(null)}></div>
-                            <div className="relative bg-card border border-primary/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
-                                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary/20 text-primary">
-                                    <Icon name="user-plus" className="h-10 w-10" />
-                                </div>
-                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">Edit <span className="text-primary">Username</span></h3>
-                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight">Updating name for: <span className="text-white">{editingUsername.email}</span></p>
-                                
-                                <div className="space-y-4 text-left mb-10">
-                                    <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">New Display Name</label>
-                                    <input 
-                                        id="newUsernameInput"
-                                        defaultValue={editingUsername.username}
-                                        placeholder="Enter new username..."
-                                        className="w-full font-black tracking-tight"
-                                    />
-                                </div>
-
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setConfirmingDiscordDisconnect(false)}></div>
+                            <div className="relative bg-card border border-red-500/20 w-full max-w-md p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <Icon name="unlink" className="h-12 w-12 text-red-500 mx-auto mb-6" />
+                                <h3 className="text-2xl font-black uppercase italic mb-4">Disconnect <span className="text-red-500">Discord</span>?</h3>
+                                <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">Unlink your Discord identity and lose access to member channels.</p>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={()=>setEditingUsername(null)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">Cancel</button>
-                                    <button 
-                                        onClick={() => finalizeUsernameChange(editingUsername.email, document.getElementById('newUsernameInput').value)}
-                                        className="bg-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all shadow-glow"
-                                    >
-                                        Apply Change
-                                    </button>
+                                    <button onClick={()=>setConfirmingDiscordDisconnect(false)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={finalizeDiscordDisconnect} className="bg-red-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Disconnect</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Custom User Deletion Modal */}
                     {deletingUser && (
                         <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
                             <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setDeletingUser(null)}></div>
                             <div className="relative bg-card border border-red-500/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
-                                <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-red-500/20 text-red-400">
-                                    <Icon name="alert-triangle" className="h-10 w-10" />
+                                <Icon name="alert-triangle" className="h-12 w-12 text-red-500 mx-auto mb-6" />
+                                <h3 className="text-3xl font-black uppercase italic mb-4 text-red-500">Delete <span className="text-white">User?</span></h3>
+                                <div className="space-y-4 text-left mb-10">
+                                    <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Confirm by typing the email: {deletingUser.email}</label>
+                                    <input value={confirmEmail} onChange={e=>setConfirmEmail(e.target.value)} placeholder={deletingUser.email} className="w-full border-red-500/30 text-red-400" />
                                 </div>
-                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4 text-red-500">Wait <span className="text-white">A Minute</span></h3>
-                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight">You are about to permanently delete <span className="text-white">{deletingUser.email}</span>. This action cannot be undone.</p>
-                                
-                                <div className="space-y-4 text-left">
-                                    <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">To confirm, type the user's email below</label>
-                                    <input 
-                                        value={confirmEmail} 
-                                        onChange={e=>setConfirmEmail(e.target.value)} 
-                                        placeholder={deletingUser.email}
-                                        className="w-full border-red-500/30 focus:border-red-500 !text-red-400 font-black"
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={()=>setDeletingUser(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={finalizeUserDeletion} className={`py-4 rounded-xl font-black uppercase text-[10px] tracking-widest ${confirmEmail === deletingUser.email ? 'bg-red-500 shadow-glow' : 'opacity-20 cursor-not-allowed bg-red-500'}`}>Delete Forever</button>
                                 </div>
+                            </div>
+                        </div>
+                    )}
 
-                                <div className="grid grid-cols-2 gap-4 mt-10">
-                                    <button onClick={()=>setDeletingUser(null)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">Cancel</button>
-                                    <button 
-                                        onClick={finalizeUserDeletion}
-                                        className={`py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] transition-all border border-red-500/20 ${confirmEmail === deletingUser.email ? 'bg-red-500 text-white shadow-glow' : 'bg-red-500/10 text-red-500 opacity-30 cursor-not-allowed'}`}
-                                    >
-                                        Delete Forever
-                                    </button>
+                    {editingUsername && (
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setEditingUsername(null)}></div>
+                            <div className="relative bg-card border border-primary/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <h3 className="text-3xl font-black uppercase italic mb-10">Edit <span className="text-primary">Username</span></h3>
+                                <input id="newUsernameInput" defaultValue={editingUsername.username} placeholder="New Username" className="w-full mb-10" />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={()=>setEditingUsername(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={() => finalizeUsernameChange(editingUsername.email, document.getElementById('newUsernameInput').value)} className="bg-primary py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Save</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {editingUserAccount && (
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setEditingUserAccount(null)}></div>
+                            <div className="relative bg-card border border-blue-500/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <h3 className="text-3xl font-black uppercase italic mb-10">Edit <span className="text-blue-400">Credentials</span></h3>
+                                <div className="space-y-6 text-left mb-10"><input id="editUserEmail" defaultValue={editingUserAccount.email} className="w-full" placeholder="Email" /><input id="editUserPass" defaultValue={editingUserAccount.pass} className="w-full" placeholder="Password" /></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={()=>setEditingUserAccount(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={() => finalizeUserAccountChange(editingUserAccount.email, {email: document.getElementById('editUserEmail').value, pass: document.getElementById('editUserPass').value})} className="bg-blue-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Save</button>
                                 </div>
                             </div>
                         </div>
