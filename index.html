@@ -1191,6 +1191,14 @@
                                         </div>
                                     </div>
 
+                                    <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6 md:col-span-2">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Supported Systems</p>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Operating System</label><input value={form.requirements?.support} onChange={e=>setForm({...form, requirements:{...form.requirements, support:e.target.value}})} className="w-full" placeholder="e.g. Win 10/11" /></div>
+                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Processor</label><input value={form.requirements?.processor} onChange={e=>setForm({...form, requirements:{...form.requirements, processor:e.target.value}})} className="w-full" placeholder="e.g. Intel & AMD" /></div>
+                                        </div>
+                                    </div>
+
                                     <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Features (Lines)</label><textarea className="w-full h-40" value={form.featureText} onChange={e=>setForm({...form, featureText:e.target.value})}></textarea></div>
                                 </div>
                                 <button onClick={()=>{setProducts(products.map(p=>p.id===editing?{...form, features:form.featureText.split('\n').filter(f=>f.trim())}:p)); setEditing(null);}} className="w-full bg-primary py-5 rounded-[2rem] font-black mt-12 uppercase italic shadow-glow">Confirm Changes</button>
