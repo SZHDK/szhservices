@@ -7,6 +7,17 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@latest/dist/email.min.js"></script>
+    <script type="text/javascript">
+        (function() {
+            const checkEmailJS = setInterval(() => {
+                if (window.emailjs) {
+                    emailjs.init("h8RrKMDXYhW8Hin6y");
+                    clearInterval(checkEmailJS);
+                }
+            }, 500);
+        })();
+    </script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- EmailJS for Real Emails -->
@@ -236,7 +247,7 @@
                     setIsLoading(true);
                     await refreshData();
                     setIsLoading(false);
-                    if (window.emailjs) emailjs.init(EMAILJS_PUBLIC_KEY);
+                    if (window.emailjs) console.log("EmailJS Ready.");
                 };
                 init();
             }, []);
