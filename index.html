@@ -84,6 +84,12 @@
             width: 18px;
             height: 18px;
         }
+
+        @keyframes toast-in {
+            0% { transform: translateX(100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+        .toast-animate { animation: toast-in 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
     </style>
 </head>
 <body>
@@ -186,6 +192,9 @@
             const [activeVerificationCode, setActiveVerificationCode] = useState(null);
             const [verificationExpiry, setVerificationExpiry] = useState(null);
             
+            // NOTIFICATION STATE
+            const [notification, setNotification] = useState(null);
+
             // SETTINGS STATE
             const [settingsTab, setSettingsTab] = useState('overview');
 
@@ -201,6 +210,8 @@
             const [deletingUser, setDeletingUser] = useState(null);
             const [promotingAdmin, setPromotingAdmin] = useState(null);
             const [editingUsername, setEditingUsername] = useState(null);
+            const [editingUserAccount, setEditingUserAccount] = useState(null);
+            const [confirmingDiscordDisconnect, setConfirmingDiscordDisconnect] = useState(false);
             const [confirmEmail, setConfirmEmail] = useState('');
             const [form, setForm] = useState({});
             const [adminTab, setAdminTab] = useState('products');
@@ -223,6 +234,12 @@
                     }
                 }
             }, [user, users]);
+
+            // NOTIFICATION HELPER
+            const notify = (msg, type = 'success') => {
+                setNotification({ msg, type });
+                setTimeout(() => setNotification(null), 4000);
+            };
 
             // --- DISCORD OAUTH LOGIC ---
             useEffect(() => {
@@ -247,12 +264,12 @@
                             avatarUrl: u.avatarUrl || avatarUrl
                         } : u));
                         
-                        alert(`Connected to Discord as ${data.username}!`);
+                        notify(`Connected to Discord as ${data.username}!`);
                         setSettingsTab('discord');
                         setIsProcessing(false);
                     })
                     .catch(() => {
-                        alert('Discord connection failed.');
+                        notify('Discord connection failed.', 'error');
                         setIsProcessing(false);
                     });
                 }
@@ -260,15 +277,17 @@
 
             const handleDiscordRedirect = () => {
                 if (DISCORD_CLIENT_ID === "YOUR_CLIENT_ID_HERE") {
-                    alert("Please set your DISCORD_CLIENT_ID in the code.");
+                    notify("Please set your DISCORD_CLIENT_ID in the code.", "error");
                     return;
                 }
                 const url = `https://discord.com/api/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&redirect_uri=${encodeURIComponent(DISCORD_REDIRECT_URI)}&response_type=token&scope=identify`;
                 window.location.href = url;
             };
 
-            const disconnectDiscord = () => {
+            const finalizeDiscordDisconnect = () => {
                 setUsers(users.map(u => u.email === user.email ? {...u, discordInfo: null} : u));
+                setConfirmingDiscordDisconnect(false);
+                notify("Discord account disconnected.");
             };
 
             const grantDiscordRole = async (discordUserId, roleId) => {
@@ -356,6 +375,7 @@
                     setUser(newUser);
                     setView('home');
                     setActiveVerificationCode(null);
+                    notify("Welcome to SZH Services!");
                 } else {
                     setAuthError('INCORRECT CODE');
                 }
@@ -398,11 +418,12 @@
                     const newPass = e.target.pass.value;
                     setUsers(users.map(u => u.email === recoveryEmail ? {...u, pass: newPass} : u));
                     setRecoveryMessage('Password Reset Successful!');
+                    notify("Password reset successful!");
                     setTimeout(() => setView('login'), 2000);
                 }
             };
 
-            const logout = () => { setUser(null); setView('login'); };
+            const logout = () => { setUser(null); setView('login'); notify("Logged out successfully."); };
             
             const addToCart = (p, plan, price) => {
                 const existing = cart.find(i => i.p.id === p.id && i.plan === plan);
@@ -456,6 +477,7 @@
                 
                 setCart([]); setCartOpen(false); setView('checkout'); setOrderId(oid);
                 setIsProcessing(false);
+                notify("Order placed! Awaiting payment.");
             };
 
             const updateOrderStatus = (oid, newStatus) => {
@@ -495,6 +517,7 @@
                             }
                         });
                     }
+                    notify(`Order ${oid} set to DELIVERED.`);
                 }
 
                 setProducts(updatedProducts);
@@ -514,6 +537,7 @@
                     setProducts(updatedProducts);
                 }
                 setOrders(orders.filter(o => o.id !== oid));
+                notify("Order deleted.");
             };
 
             const addKeyToOrder = (oid) => {
@@ -535,11 +559,13 @@
                     return;
                 }
                 setUsers(users.map(u => u.email === email ? {...u, role: newRole} : u));
+                notify("User role updated.");
             };
 
             const finalizeAdminPromotion = () => {
                 setUsers(users.map(u => u.email === promotingAdmin ? {...u, role: 'admin'} : u));
                 setPromotingAdmin(null);
+                notify("User promoted to Admin.");
             };
 
             const finalizeUserDeletion = () => {
@@ -548,30 +574,64 @@
                     setOrders(orders.filter(o => o.userEmail !== deletingUser.email));
                     setDeletingUser(null);
                     setConfirmEmail('');
+                    notify("User deleted permanently.");
                 } else {
-                    alert('Email did not match. Deletion cancelled.');
+                    notify("Email did not match. Deletion cancelled.", "error");
+                    setDeletingUser(null);
                 }
             };
 
             const finalizeUsernameChange = (email, newUsername) => {
                 if (!newUsername.trim()) return;
                 if (users.some(u => u.email !== email && u.username?.toLowerCase() === newUsername.trim().toLowerCase())) {
-                    alert('This username is already taken!');
+                    notify('This username is already taken!', 'error');
                     return;
                 }
                 setUsers(users.map(u => u.email === email ? {...u, username: newUsername.trim()} : u));
                 setEditingUsername(null);
+                notify("Username updated.");
+            };
+
+            const finalizeUserAccountChange = (oldEmail, newData) => {
+                if (!newData.email.trim() || !newData.pass.trim()) return;
+                
+                // Check if new email is taken by someone else
+                if (oldEmail !== newData.email && users.some(u => u.email === newData.email)) {
+                    notify('This email is already in use by another account.', 'error');
+                    return;
+                }
+
+                setUsers(users.map(u => u.email === oldEmail ? {...u, email: newData.email, pass: newData.pass} : u));
+                setOrders(orders.map(o => o.userEmail === oldEmail ? {...o, userEmail: newData.email} : o));
+                
+                if (user.email === oldEmail) {
+                    setUser({...user, email: newData.email, pass: newData.pass});
+                }
+
+                setEditingUserAccount(null);
+                notify("User account details updated.");
             };
 
             const updateAvatar = (url) => {
                 setUsers(users.map(u => u.email === user.email ? {...u, avatarUrl: url} : u));
-                alert('Avatar updated successfully!');
+                notify('Avatar updated successfully!');
             };
 
             const userOrders = user ? orders.filter(o => o.userEmail === user.email) : [];
 
             return (
                 <div className="min-h-screen flex flex-col">
+                    {/* Toast Notification */}
+                    {notification && (
+                        <div className="fixed top-8 right-8 z-[1000] toast-animate">
+                            <div className={`px-8 py-4 rounded-2xl premium-blur border shadow-2xl flex items-center gap-4 ${notification.type === 'error' ? 'border-red-500/30 text-red-400' : 'border-primary/30 text-white'}`}>
+                                <Icon name={notification.type === 'error' ? 'alert-circle' : 'check-circle'} className="h-5 w-5" />
+                                <span className="text-[11px] font-black uppercase tracking-widest">{notification.msg}</span>
+                                <button onClick={() => setNotification(null)} className="ml-4 opacity-30 hover:opacity-100"><Icon name="x" className="h-4 w-4" /></button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Top Bar */}
                     <div className="h-12 border-b border-border bg-background/95 flex items-center px-6 justify-between text-[10px] font-black uppercase tracking-[0.2em]">
                         <div className="opacity-0">placeholder</div>
@@ -911,7 +971,7 @@
                                                                         <p className="text-[9px] font-bold opacity-20 uppercase tracking-widest mt-1">ID: {user.discordInfo.id}</p>
                                                                     </div>
                                                                 </div>
-                                                                <button onClick={disconnectDiscord} className="px-6 py-3 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-all">Disconnect</button>
+                                                                <button onClick={() => setConfirmingDiscordDisconnect(true)} className="px-6 py-3 bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-500 hover:text-white transition-all">Disconnect</button>
                                                             </div>
                                                         ) : (
                                                             <div className="text-center py-12">
@@ -1077,7 +1137,8 @@
                                                             <div>
                                                                 <div className="flex items-center gap-2 group/name">
                                                                     <p className="font-black text-lg tracking-tight uppercase">{u.username || 'NO USERNAME'}</p>
-                                                                    <button onClick={() => setEditingUsername(u)} className="p-1.5 bg-primary/10 text-primary rounded-lg opacity-0 group-hover/name:opacity-100 transition-all hover:bg-primary/20"><Icon name="edit-2" className="h-3.5 w-3.5" /></button>
+                                                                    <button onClick={() => setEditingUsername(u)} title="Change Username" className="p-1.5 bg-primary/10 text-primary rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-primary/20"><Icon name="user" className="h-3.5 w-3.5" /></button>
+                                                                    <button onClick={() => setEditingUserAccount(u)} title="Edit Login Details" className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-blue-500/20"><Icon name="key" className="h-3.5 w-3.5" /></button>
                                                                 </div>
                                                                 <p className="text-[10px] font-black opacity-40 uppercase tracking-widest">{u.email}</p>
                                                                 <div className="flex items-center gap-3 mt-1.5">
@@ -1212,6 +1273,76 @@
                                     <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Features List (One per line)</label><textarea className="w-full h-40" value={form.featureText} onChange={e=>setForm({...form, featureText:e.target.value})}></textarea></div>
                                 </div>
                                 <button onClick={()=>{setProducts(products.map(p=>p.id===editing?{...form, features:form.featureText.split('\n').filter(f=>f.trim())}:p)); setEditing(null);}} className="w-full bg-primary py-5 rounded-[2rem] font-black mt-12 uppercase italic shadow-glow hover:brightness-110 transition-all tracking-widest text-xl">Confirm Updates</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Admin User Account Edit Modal */}
+                    {editingUserAccount && (
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setEditingUserAccount(null)}></div>
+                            <div className="relative bg-card border border-primary/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary/20 text-primary">
+                                    <Icon name="shield-check" className="h-10 w-10" />
+                                </div>
+                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4">Edit <span className="text-primary">Login Details</span></h3>
+                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight italic">Directly updating account credentials.</p>
+                                
+                                <div className="space-y-6 text-left mb-10">
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Email Address</label>
+                                        <input 
+                                            id="editUserEmail"
+                                            defaultValue={editingUserAccount.email}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Password</label>
+                                        <input 
+                                            id="editUserPass"
+                                            defaultValue={editingUserAccount.pass}
+                                            className="w-full"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={()=>setEditingUserAccount(null)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">Cancel</button>
+                                    <button 
+                                        onClick={() => finalizeUserAccountChange(editingUserAccount.email, {
+                                            email: document.getElementById('editUserEmail').value,
+                                            pass: document.getElementById('editUserPass').value
+                                        })}
+                                        className="bg-primary text-white py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all shadow-glow"
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Discord Disconnect Confirmation Modal */}
+                    {confirmingDiscordDisconnect && (
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setConfirmingDiscordDisconnect(false)}></div>
+                            <div className="relative bg-card border border-red-500/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-red-500/20 text-red-400">
+                                    <Icon name="unlink" className="h-10 w-10" />
+                                </div>
+                                <h3 className="text-3xl font-black uppercase italic tracking-tighter mb-4 text-red-500">Are <span className="text-white">You Sure?</span></h3>
+                                <p className="text-sm text-white/40 mb-10 leading-relaxed font-bold uppercase tracking-tight italic">You are about to disconnect your Discord account. You will lose access to member-only channels.</p>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={()=>setConfirmingDiscordDisconnect(false)} className="bg-white/5 py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-white/10 transition-all border border-white/5">No, Stay</button>
+                                    <button 
+                                        onClick={finalizeDiscordDisconnect}
+                                        className="bg-red-500 text-white py-4 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:brightness-110 transition-all shadow-glow"
+                                    >
+                                        Yes, Disconnect
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
