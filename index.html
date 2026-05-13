@@ -1420,7 +1420,7 @@
                             <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setDeletingOrder(null)}></div>
                             <div className="relative bg-card border border-red-500/20 w-full max-w-md p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
                                 <Icon name="alert-triangle" className="h-12 w-12 text-red-500 mx-auto mb-6" />
-                                <h3 className="text-2xl font-black uppercase italic mb-4">Delete Order <span className="text-red-500">{deletingOrder}</span>?</h3>
+                                <h3 className="text-2xl font-black uppercase italic mb-4">Delete Order <span className="text-red-500">{deletingOrder.id}</span>?</h3>
                                 <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">Deleting this order will refund stock to the inventory. This cannot be undone.</p>
                                 <div className="grid grid-cols-2 gap-4">
                                     <button onClick={()=>setDeletingOrder(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
@@ -1458,7 +1458,7 @@
                             <div className="relative bg-card border border-primary/20 w-full max-w-md p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
                                 <Icon name="shield-alert" className="h-12 w-12 text-primary mx-auto mb-6" />
                                 <h3 className="text-2xl font-black uppercase italic mb-4">Grant <span className="text-primary">Admin Access?</span></h3>
-                                <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">Full control over users and inventory for {promotingAdmin}.</p>
+                                <p className="text-xs text-white/40 mb-10 font-bold uppercase tracking-widest italic leading-relaxed">Full control over users and inventory for {promotingAdmin.username || promotingAdmin.email}.</p>
                                 <div className="grid grid-cols-2 gap-4">
                                     <button onClick={()=>setPromotingAdmin(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
                                     <button onClick={finalizeAdminPromotion} className="bg-primary py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Promote</button>
