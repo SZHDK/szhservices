@@ -138,8 +138,16 @@
 
         // UI Components
         const Icon = ({ name, className = "h-4 w-4" }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []);
-            return <i data-lucide={name} className={className}></i>;
+            const ref = useRef(null);
+            useEffect(() => {
+                if (window.lucide && ref.current) {
+                    ref.current.innerHTML = `<i data-lucide="${name}" class="${className}"></i>`;
+                    window.lucide.createIcons({
+                        attrs: { class: className }
+                    });
+                }
+            }, [name, className]);
+            return <span ref={ref} className="inline-flex items-center justify-center leading-none"></span>;
         };
 
         const StatusBadge = ({ status }) => {
