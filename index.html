@@ -101,6 +101,7 @@
         const DISCORD_CLIENT_ID = "1504167264042352781"; 
         const DISCORD_REDIRECT_URI = window.location.origin + window.location.pathname; 
         const DISCORD_GUILD_ID = "1497974885358768291"; 
+        const DISCORD_BRIDGE_URL = "https://szh-bridge.teinups.workers.dev/"; // e.g. https://szh-bridge.name.workers.dev
         // Token split to avoid GitHub's automated secret scanners
         const _p1 = "MTUwNDE2NzI2NDA0MjM1Mjc4MQ";
         const _p2 = ".GtqJwr.vcKowxIkqWby4gHexDirwnQ3PWsDOzdAP6Uyt8";
@@ -293,14 +294,19 @@
             const grantDiscordRole = async (discordUserId, roleId) => {
                 if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !roleId) return;
                 try {
-                    const response = await fetch(`https://discord.com/api/guilds/${DISCORD_GUILD_ID}/members/${discordUserId}/roles/${roleId}`, {
+                    // Use the bridge if provided, otherwise fallback to direct (which will likely CORS error in browser)
+                    const baseUrl = DISCORD_BRIDGE_URL && !DISCORD_BRIDGE_URL.includes("PASTE_YOUR") 
+                        ? DISCORD_BRIDGE_URL.replace(/\/$/, "") 
+                        : "https://discord.com/api";
+                        
+                    const response = await fetch(`${baseUrl}/guilds/${DISCORD_GUILD_ID}/members/${discordUserId}/roles/${roleId}`, {
                         method: 'PUT',
                         headers: {
                             'Authorization': `Bot ${DISCORD_BOT_TOKEN}`,
                             'X-Audit-Log-Reason': 'SZH Services Purchase Delivered'
                         }
                     });
-                    if (response.ok) console.log(`Role ${roleId} granted to ${discordUserId}`);
+                    if (response.ok) notify(`Discord Role Granted to ${discordUserId}!`);
                     else console.error('Failed to grant role:', await response.text());
                 } catch(e) {
                     console.error('Discord API Error:', e);
