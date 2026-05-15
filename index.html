@@ -278,6 +278,13 @@
                 }
             }, [view, adminTab, activeTicket]);
 
+            // Auto Scroll Chat
+            useEffect(() => {
+                if (ticketChatRef.current) {
+                    ticketChatRef.current.scrollTop = ticketChatRef.current.scrollHeight;
+                }
+            }, [activeTicket?.messages]);
+
             // Listen for Back/Forward Buttons
             useEffect(() => {
                 const handleHashChange = () => {
@@ -764,9 +771,14 @@
                             setTickets(prev => [payload.new, ...prev.filter(t => t.id !== payload.new.id)]);
                         } else if (payload.eventType === 'UPDATE') {
                             setTickets(prev => prev.map(t => t.id === payload.new.id ? payload.new : t));
-                            setActiveTicket(prev => prev?.id === payload.new.id ? payload.new : prev);
+                            // Force active ticket to update if it's the one we're looking at
+                            setActiveTicket(prev => {
+                                if (prev && prev.id === payload.new.id) return payload.new;
+                                return prev;
+                            });
                         } else if (payload.eventType === 'DELETE') {
                             setTickets(prev => prev.filter(t => t.id !== payload.old.id));
+                            setActiveTicket(prev => prev?.id === payload.old.id ? null : prev);
                         }
                     })
                     .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
