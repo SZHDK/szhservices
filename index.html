@@ -197,8 +197,6 @@
 
         const App = () => {
             // AUTH STATE
-            const [view, setView] = useState('login'); 
-            const [selectedGame, setSelectedGame] = useState(null);
             const [user, setUser] = useState(() => {
                 try {
                     return JSON.parse(localStorage.getItem('szh_user')) || null;
@@ -206,6 +204,8 @@
                     return null;
                 }
             });
+            const [view, setView] = useState(user ? 'home' : 'login'); 
+            const [selectedGame, setSelectedGame] = useState(null);
             const [authError, setAuthError] = useState(null);
             const [isProcessing, setIsProcessing] = useState(false);
             const [isLoading, setIsLoading] = useState(true);
@@ -979,9 +979,9 @@
                                                     </div>
                                                     <div className="p-6">
                                                         <h3 className="font-black text-xl mb-4 tracking-tight uppercase italic">{g.name}</h3>
-                                                        <div className="mt-6 flex justify-between items-end border-t border-white/5 pt-5">
-                                                            <div><p className="text-[9px] font-black opacity-30 uppercase tracking-widest">Starting From</p><p className="text-2xl font-black">{g.minPrice} EUR</p></div>
-                                                            <button className="bg-white/5 px-5 py-2.5 rounded-lg text-[10px] font-black uppercase group-hover:bg-primary group-hover:text-black transition-all tracking-widest">View More</button>
+                                                        <div className="mt-6 flex justify-between items-end border-t border-white/5 pt-5 gap-6">
+                                                            <div><p className="text-[9px] font-black opacity-30 uppercase tracking-widest">Starting From</p><p className="text-2xl font-black whitespace-nowrap">{g.minPrice} EUR</p></div>
+                                                            <button className="bg-white/5 px-5 py-2.5 rounded-lg text-[10px] font-black uppercase group-hover:bg-primary group-hover:text-black transition-all tracking-widest flex-shrink-0">View More</button>
                                                         </div>
                                                     </div>
                                                 </div>
