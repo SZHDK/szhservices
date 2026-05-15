@@ -1142,7 +1142,7 @@
                                         <button onClick={()=>setView('purchases')} className={`hover:text-white transition-colors font-black ${view==='purchases'?'text-white':''}`}>Purchases</button>
                                         <button onClick={()=>setView('settings')} className={`hover:text-white transition-colors font-black ${view==='settings'?'text-white':''}`}>Settings</button>
                                         <button onClick={()=>{setView('support'); setActiveTicket(null);}} className={`hover:text-white transition-colors font-black relative ${view==='support'?'text-white':''}`}>Support{userHasUnread && <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>}</button>
-                                        {user.role === 'admin' && <button onClick={()=>setView('admin')} className="text-primary font-black uppercase">Admin Panel</button>}
+                                        {user.role === 'admin' && <button onClick={()=>setView('admin')} className={`font-black uppercase transition-all ${view === 'admin' ? 'text-primary shadow-glow' : 'text-primary/60 hover:text-primary'}`}>Admin Panel</button>}
                                     </div>
                                     <div className="flex items-center gap-3 ml-4">
                                         <span className={`text-[9px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border ${siteStatus === 'ONLINE' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5 shadow-[0_0_15px_rgba(16,185,129,0.1)]' : siteStatus === 'MAINTENANCE' ? 'border-amber-500/30 text-amber-400 bg-amber-500/5' : 'border-red-500/30 text-red-400 bg-red-500/5'}`}>STATUS: {siteStatus}</span>
