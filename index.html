@@ -97,6 +97,14 @@
             height: 18px;
         }
 
+        .friend-glow {
+            background: rgba(236, 72, 153, 0.15);
+            color: #f472b6;
+            border: 1px solid rgba(236, 72, 153, 0.5);
+            box-shadow: 0 0 15px rgba(236, 72, 153, 0.4);
+            text-shadow: 0 0 8px rgba(236, 72, 153, 0.8);
+        }
+
         @keyframes toast-in {
             0% { transform: translateX(100%); opacity: 0; }
             100% { transform: translateX(0); opacity: 1; }
@@ -135,6 +143,7 @@
         const EMAILJS_RECOVERY_TEMPLATE = "template_to3z2z7";
 
         const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1504034160568959066/RfLrT5KOxoypKr6Ad4rvmS8-1bdQpYdkbp8Q6WK9zyCaWqp2EF2_HPtU4PGWn1Sl8SSo";
+        const TICKET_WEBHOOK_URL = "https://discord.com/api/webhooks/1504963739319795712/LyeLgS0f7KG--dc3CS1eBfHeYJb4lf4RXqtzFKJeDnJ6QXRWmpR2txjsUWUdEjVDl0La";
 
         // UI Components
         const Icon = ({ name, className = "h-4 w-4" }) => {
@@ -242,6 +251,19 @@
             const [adminTab, setAdminTab] = useState('products');
             const [orderId, setOrderId] = useState(null);
             const [users, setUsers] = useState([]);
+            const [coupons, setCoupons] = useState([]);
+            const [couponCode, setCouponCode] = useState('');
+            const [appliedCoupon, setAppliedCoupon] = useState(null);
+            const [paymentMethod, setPaymentMethod] = useState(null);
+            const [checkoutStep, setCheckoutStep] = useState(1);
+            const [tickets, setTickets] = useState([]);
+            const [activeTicket, setActiveTicket] = useState(null);
+            const [ticketMessage, setTicketMessage] = useState('');
+            const [ticketSubject, setTicketSubject] = useState('');
+            const [hasUnreadTickets, setHasUnreadTickets] = useState(false);
+            const [adminTicketTab, setAdminTicketTab] = useState('unclaimed');
+            const [closingTicket, setClosingTicket] = useState(null);
+            const ticketChatRef = useRef(null);
 
             // --- INITIAL DATA FETCH ---
             const refreshData = async () => {
@@ -253,6 +275,12 @@
 
                 const { data: uData } = await _supabase.from('szh_users').select('*');
                 if (uData) setUsers(uData);
+
+                const { data: cData } = await _supabase.from('coupons').select('*');
+                if (cData) setCoupons(cData);
+
+                const { data: tData } = await _supabase.from('tickets').select('*').order('created_at', { ascending: false });
+                if (tData) setTickets(tData);
             };
 
             useEffect(() => {
@@ -552,34 +580,169 @@
                 }
             };
 
+            const calculateSubtotal = () => cart.reduce((s,i)=>s+(i.price*i.qty), 0);
+            const calculateTotal = () => {
+                const sub = calculateSubtotal();
+                if (!appliedCoupon) return sub;
+                return sub * (1 - appliedCoupon.discount_percent / 100);
+            };
+
+            const applyCoupon = () => {
+                if (!couponCode.trim()) return;
+                const c = coupons.find(c => c.code.toLowerCase() === couponCode.trim().toLowerCase());
+                if (!c) { notify("Invalid coupon code.", "error"); return; }
+                const cartGames = [...new Set(cart.map(i => i.p.game))];
+                const couponGames = c.game_names || [];
+                if (couponGames.length > 0) {
+                    const allValid = cartGames.every(g => couponGames.includes(g));
+                    if (!allValid) { notify("Coupon not valid for all items in cart.", "error"); return; }
+                }
+                setAppliedCoupon(c);
+                notify(`Coupon "${c.code}" applied! -${c.discount_percent}% off`);
+            };
+
+            const addCoupon = async (code, discount, gameNames) => {
+                const newC = { code, discount_percent: parseInt(discount), game_names: gameNames.length > 0 ? gameNames : [] };
+                const { data, error } = await _supabase.from('coupons').insert([newC]).select();
+                if (!error && data) { setCoupons([...coupons, data[0]]); notify("Coupon created!"); }
+                else notify("Failed to create coupon.", "error");
+            };
+
+            const deleteCoupon = async (id) => {
+                const { error } = await _supabase.from('coupons').delete().eq('id', id);
+                if (!error) { setCoupons(coupons.filter(c => c.id !== id)); notify("Coupon deleted."); }
+            };
+
+            // --- TICKET SYSTEM ---
+            const createTicket = async (subject) => {
+                if (!subject.trim()) return;
+                const tid = `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+                const newTicket = {
+                    id: tid, user_email: user.email, username: user.username || user.email,
+                    subject, status: 'unclaimed', claimed_by: null,
+                    messages: [{ sender: user.email, sender_name: user.username || user.email, text: subject, time: new Date().toISOString(), is_admin: false }],
+                    created_at: new Date().toISOString()
+                };
+                const { data, error } = await _supabase.from('tickets').insert([newTicket]).select();
+                if (!error && data) {
+                    setTickets([data[0], ...tickets]);
+                    setActiveTicket(data[0]);
+                    setTicketSubject('');
+                    notify("Ticket created!");
+                    try {
+                        await fetch(TICKET_WEBHOOK_URL, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ embeds: [{ title: "🎫 NEW TICKET", color: 9133302, fields: [
+                                { name: "Ticket ID", value: `\`${tid}\``, inline: true },
+                                { name: "User", value: `\`${user.username || user.email}\``, inline: true },
+                                { name: "Subject", value: subject }
+                            ], timestamp: new Date().toISOString() }] })
+                        });
+                    } catch(e) {}
+                }
+            };
+
+            const sendTicketMessage = async (ticketId, text, isAdmin = false) => {
+                if (!text.trim()) return;
+                const ticket = tickets.find(t => t.id === ticketId);
+                if (!ticket) return;
+                const newMsg = { sender: user.email, sender_name: user.username || user.email, text, time: new Date().toISOString(), is_admin: isAdmin || user.role === 'admin' };
+                const updatedMessages = [...(ticket.messages || []), newMsg];
+                const updates = { messages: updatedMessages };
+                if (user.role !== 'admin') updates.has_unread_admin = true;
+                else updates.has_unread_user = true;
+                const { error } = await _supabase.from('tickets').update(updates).eq('id', ticketId);
+                if (!error) {
+                    const updated = tickets.map(t => t.id === ticketId ? { ...t, ...updates } : t);
+                    setTickets(updated);
+                    setActiveTicket({ ...ticket, ...updates });
+                    setTicketMessage('');
+                }
+            };
+
+            const getTicketUserInfo = (email) => users.find(u => u.email === email) || {};
+
+            const claimTicket = async (ticketId) => {
+                const adminInfo = { email: user.email, username: user.username, avatar_url: user.avatar_url || null };
+                const ticket = tickets.find(t => t.id === ticketId);
+                const sysMsg = { sender: 'system', sender_name: 'System', text: `Ticket claimed by ${user.username || user.email}`, time: new Date().toISOString(), is_admin: true, is_system: true };
+                const updatedMessages = [...(ticket?.messages || []), sysMsg];
+                const { error } = await _supabase.from('tickets').update({ status: 'open', claimed_by: user.email, claimed_admin: adminInfo, has_unread_user: true, messages: updatedMessages }).eq('id', ticketId);
+                if (!error) {
+                    const updated = tickets.map(t => t.id === ticketId ? { ...t, status: 'open', claimed_by: user.email, claimed_admin: adminInfo, has_unread_user: true, messages: updatedMessages } : t);
+                    setTickets(updated);
+                    setActiveTicket(updated.find(t => t.id === ticketId));
+                    notify("Ticket claimed!");
+                }
+            };
+
+            const closeTicket = async (ticketId) => {
+                const ticket = tickets.find(t => t.id === ticketId);
+                const sysMsg = { sender: 'system', sender_name: 'System', text: `Ticket closed by ${user.username || user.email}`, time: new Date().toISOString(), is_admin: true, is_system: true };
+                const updatedMessages = [...(ticket?.messages || []), sysMsg];
+                const { error } = await _supabase.from('tickets').update({ status: 'closed', has_unread_user: true, messages: updatedMessages }).eq('id', ticketId);
+                if (!error) {
+                    const updated = tickets.map(t => t.id === ticketId ? { ...t, status: 'closed', has_unread_user: true, messages: updatedMessages } : t);
+                    setTickets(updated);
+                    setActiveTicket(null);
+                    setClosingTicket(null);
+                    notify("Ticket closed.");
+                }
+            };
+
+            const markTicketRead = async (ticketId, field) => {
+                await _supabase.from('tickets').update({ [field]: false }).eq('id', ticketId);
+                setTickets(tickets.map(t => t.id === ticketId ? { ...t, [field]: false } : t));
+            };
+
+            const userTickets = useMemo(() => tickets.filter(t => t.user_email === user?.email), [tickets, user]);
+            const userHasUnread = useMemo(() => userTickets.some(t => t.has_unread_user), [userTickets]);
+
+            useEffect(() => {
+                if (ticketChatRef.current) ticketChatRef.current.scrollTop = ticketChatRef.current.scrollHeight;
+            }, [activeTicket?.messages]);
+
+            // Polling for ticket updates
+            useEffect(() => {
+                if (!user) return;
+                const interval = setInterval(async () => {
+                    const { data } = await _supabase.from('tickets').select('*').order('created_at', { ascending: false });
+                    if (data) setTickets(data);
+                }, 15000);
+                return () => clearInterval(interval);
+            }, [user]);
+
+            const startCheckoutFlow = () => {
+                setCartOpen(false);
+                setCheckoutStep(1);
+                setPaymentMethod(null);
+                setCouponCode('');
+                setAppliedCoupon(null);
+                setView('checkout');
+            };
+
             const handleCheckout = async () => {
                 if (isProcessing) return;
+                if (!paymentMethod) { notify("Please select a payment method.", "error"); return; }
                 
-                // Verify user still exists before order
                 const { data: checkUser } = await _supabase.from('szh_users').select('email').eq('email', user.email).single();
-                if (!checkUser) {
-                    logout();
-                    notify("Session expired or account deleted.", "error");
-                    return;
-                }
+                if (!checkUser) { logout(); notify("Session expired.", "error"); return; }
 
                 setIsProcessing(true);
                 const oid = `SZH-${Math.floor(1000 + Math.random() * 9000)}`;
+                const total = calculateTotal().toFixed(2);
                 const newOrder = { 
-                    id: oid, 
-                    user_email: user.email, 
-                    items: [...cart], 
-                    status: 'unpaid', 
-                    keys: [], 
+                    id: oid, user_email: user.email, items: [...cart], 
+                    status: 'unpaid', keys: [], total: parseFloat(total),
+                    payment_method: paymentMethod,
+                    coupon_used: appliedCoupon?.code || null,
                     timestamp: new Date().toISOString() 
                 };
                 
                 const { error } = await _supabase.from('orders').insert([newOrder]);
                 if (!error) {
                     setOrders([newOrder, ...orders]);
-                    const total = cart.reduce((s,i)=>s+(i.price*i.qty),0).toFixed(2);
                     const itemsStr = cart.map(i => `• **${i.p.name}** (${i.plan.toUpperCase()}) x${i.qty} - $${(i.price*i.qty).toFixed(2)}`).join('\n');
-                    
                     try {
                         await fetch(DISCORD_WEBHOOK_URL, {
                             method: 'POST',
@@ -591,7 +754,8 @@
                                     fields: [
                                         { name: "Order ID", value: `\`${oid}\``, inline: true },
                                         { name: "Customer", value: `\`${user.email}\``, inline: true },
-                                        { name: "Total", value: `**$${total}**`, inline: true },
+                                        { name: "Total", value: `**$${total} EUR**`, inline: true },
+                                        { name: "Method", value: paymentMethod.toUpperCase(), inline: true },
                                         { name: "Items", value: itemsStr }
                                     ],
                                     timestamp: new Date().toISOString()
@@ -599,8 +763,7 @@
                             })
                         });
                     } catch(e) {}
-                    
-                    setCart([]); setCartOpen(false); setView('checkout'); setOrderId(oid);
+                    setCart([]); setOrderId(oid); setCheckoutStep(2);
                     notify("Order placed! Awaiting payment.");
                 } else {
                     notify("Checkout failed. Database error.", "error");
@@ -831,6 +994,8 @@
                                             <span className="text-white font-black uppercase tracking-widest">{user.username || user.email}</span>
                                             {user.role === 'admin' ? (
                                                 <span className="admin-glow px-3 py-1 rounded text-[8px] font-black tracking-[0.2em]">ADMIN</span>
+                                            ) : user.role === 'friend' ? (
+                                                <span className="friend-glow px-3 py-1 rounded text-[8px] font-black tracking-[0.2em]">FRIEND</span>
                                             ) : user.role === 'customer' ? (
                                                 <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded text-[8px] tracking-[0.1em] font-black uppercase">CUSTOMER</span>
                                             ) : (
@@ -855,6 +1020,7 @@
                                         <button onClick={()=>setView('status')} className={`hover:text-white transition-colors font-black ${view==='status'?'text-white':''}`}>Status</button>
                                         <button onClick={()=>setView('purchases')} className={`hover:text-white transition-colors font-black ${view==='purchases'?'text-white':''}`}>Purchases</button>
                                         <button onClick={()=>setView('settings')} className={`hover:text-white transition-colors font-black ${view==='settings'?'text-white':''}`}>Settings</button>
+                                        <button onClick={()=>{setView('support'); setActiveTicket(null);}} className={`hover:text-white transition-colors font-black relative ${view==='support'?'text-white':''}`}>Support{userHasUnread && <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>}</button>
                                         {user.role === 'admin' && <button onClick={()=>setView('admin')} className="text-primary font-black uppercase">Admin Panel</button>}
                                     </div>
                                     <div className="flex items-center gap-3 ml-4">
@@ -1246,6 +1412,8 @@
                                                 <button onClick={()=>setAdminTab('products')} className={`text-sm font-black uppercase tracking-[0.3em] ${adminTab === 'products' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Inventory</button>
                                                 <button onClick={()=>setAdminTab('orders')} className={`text-sm font-black uppercase tracking-[0.3em] ${adminTab === 'orders' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Orders</button>
                                                 <button onClick={()=>setAdminTab('users')} className={`text-sm font-black uppercase tracking-[0.3em] ${adminTab === 'users' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Users</button>
+                                                <button onClick={()=>setAdminTab('coupons')} className={`text-sm font-black uppercase tracking-[0.3em] ${adminTab === 'coupons' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Coupons</button>
+                                                <button onClick={()=>setAdminTab('tickets')} className={`text-sm font-black uppercase tracking-[0.3em] relative ${adminTab === 'tickets' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Tickets{tickets.some(t => t.has_unread_admin) && <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>}</button>
                                             </div>
                                             <div className="w-64"><CustomSelect label="Website Status" value={siteStatus} onChange={setSiteStatus} options={[{value:'ONLINE', label:'ONLINE'}, {value:'MAINTENANCE', label:'MAINTENANCE'}, {value:'OFFLINE', label:'OFFLINE'}]} /></div>
                                         </div>
@@ -1277,6 +1445,11 @@
                                                             <div className="space-y-2">
                                                                 <p className="text-3xl font-black tracking-tighter">{o.id}</p>
                                                                 <p className="text-xs font-bold text-primary tracking-widest uppercase">{o.user_email}</p>
+                                                                <div className="flex flex-wrap gap-3 mt-3">
+                                                                    {o.payment_method && <span className="bg-white/5 border border-white/5 px-3 py-1 rounded text-[9px] font-black uppercase tracking-widest">{o.payment_method}</span>}
+                                                                    {o.total && <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded text-[9px] font-black">${o.total} EUR</span>}
+                                                                    {o.coupon_used && <span className="bg-primary/10 text-primary border border-primary/20 px-3 py-1 rounded text-[9px] font-black uppercase">Coupon: {o.coupon_used}</span>}
+                                                                </div>
                                                                 <div className="mt-4 space-y-1">{o.items.map((i, k) => <p key={k} className="text-[10px] font-bold opacity-40 uppercase">{i.p.name} ({i.plan}) x{i.qty}</p>)}</div>
                                                             </div>
                                                             <CustomSelect value={o.status} onChange={v => updateOrderStatus(o.id, v)} options={[{value:'unpaid',label:'UNPAID'},{value:'paid',label:'PAID'},{value:'delivered',label:'DELIVERED'}]} />
@@ -1316,7 +1489,7 @@
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center gap-6">
-                                                                <CustomSelect disabled={u.email === user.email} className="w-32" value={u.role} onChange={r => updateUserRole(u.email, r)} options={[{value:'verified', label:'VERIFIED'}, {value:'customer', label:'CUSTOMER'}, {value:'admin', label:'ADMIN'}]} />
+                                                                <CustomSelect disabled={u.email === user.email} className="w-32" value={u.role} onChange={r => updateUserRole(u.email, r)} options={[{value:'verified', label:'VERIFIED'}, {value:'customer', label:'CUSTOMER'}, {value:'friend', label:'FRIEND'}, {value:'admin', label:'ADMIN'}]} />
                                                                 {u.email !== user.email && <button onClick={() => setDeletingUser(u)} className="p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-100"><Icon name="trash-2" /></button>}
                                                             </div>
                                                         </div>
@@ -1324,29 +1497,330 @@
                                                 </div>
                                             </div>
                                         )}
+
+                                        {adminTab === 'coupons' && (
+                                            <div className="space-y-10 animate-in fade-in duration-500">
+                                                <div className="bg-card border border-border p-10 rounded-[2.5rem] space-y-8">
+                                                    <p className="text-lg font-black uppercase tracking-widest">Create <span className="text-primary">Coupon</span></p>
+                                                    <form onSubmit={(e) => { e.preventDefault(); const code = e.target.code.value; const disc = e.target.discount.value; const checkboxes = e.target.querySelectorAll('input[name=couponGame]:checked'); const games = Array.from(checkboxes).map(c => c.value); if (!code || !disc) return; addCoupon(code, disc, games); e.target.reset(); }} className="space-y-6">
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Coupon Code</label><input name="code" placeholder="e.g. SUMMER20" className="w-full" required /></div>
+                                                            <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Discount %</label><input name="discount" type="number" min="1" max="100" placeholder="e.g. 20" className="w-full" required /></div>
+                                                        </div>
+                                                        <div className="space-y-3">
+                                                            <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Applies To (leave unchecked = store-wide)</label>
+                                                            <div className="flex flex-wrap gap-3">
+                                                                {[...new Set(products.map(p => p.game))].map(g => (
+                                                                    <label key={g} className="flex items-center gap-2 bg-white/5 border border-white/5 px-4 py-2.5 rounded-xl cursor-pointer hover:border-primary/30 transition-all">
+                                                                        <input type="checkbox" name="couponGame" value={g} className="!w-4 !h-4 !p-0 !rounded accent-primary" />
+                                                                        <span className="text-[10px] font-black uppercase tracking-widest">{g}</span>
+                                                                    </label>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <button className="bg-primary px-10 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-glow hover:brightness-110 transition-all">Create Coupon</button>
+                                                    </form>
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                                    {coupons.map(c => (
+                                                        <div key={c.id} className="bg-card border border-border p-8 rounded-2xl group hover:border-primary/30 transition-all relative">
+                                                            <div className="absolute top-4 right-4 bg-primary/10 text-primary border border-primary/20 px-3 py-1 rounded-full text-[10px] font-black">-{c.discount_percent}%</div>
+                                                            <p className="text-2xl font-black text-primary tracking-tight mb-2 uppercase">{c.code}</p>
+                                                            <p className="text-[9px] font-black opacity-30 uppercase tracking-widest">{c.game_names && c.game_names.length > 0 ? c.game_names.join(', ') : 'Store-wide'}</p>
+                                                            <button onClick={() => deleteCoupon(c.id)} className="mt-4 p-2 text-red-400/40 hover:text-red-400 transition-colors"><Icon name="trash-2" className="h-4 w-4" /></button>
+                                                        </div>
+                                                    ))}
+                                                    {coupons.length === 0 && <p className="col-span-3 text-center py-12 opacity-20 text-[10px] font-black uppercase tracking-[0.5em]">No Coupons Created Yet</p>}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {adminTab === 'tickets' && (
+                                            <div className="space-y-8 animate-in fade-in duration-500">
+                                                <div className="flex gap-6 border-b border-white/5 pb-4">
+                                                    {['unclaimed','open','closed'].map(tab => (
+                                                        <button key={tab} onClick={() => { setAdminTicketTab(tab); setActiveTicket(null); }} className={`text-[11px] font-black uppercase tracking-widest pb-2 border-b-2 transition-all ${adminTicketTab === tab ? 'border-primary text-primary' : 'border-transparent opacity-30 hover:opacity-100'}`}>{tab} ({tickets.filter(t => t.status === tab).length})</button>
+                                                    ))}
+                                                </div>
+                                                <div className="flex gap-6 h-[60vh]">
+                                                    <div className="w-72 space-y-3 overflow-y-auto no-scrollbar">
+                                                        {tickets.filter(t => t.status === adminTicketTab).map(t => {
+                                                            const tUser = getTicketUserInfo(t.user_email);
+                                                            return (
+                                                            <button key={t.id} onClick={() => { setActiveTicket(t); if (t.has_unread_admin) markTicketRead(t.id, 'has_unread_admin'); }} className={`w-full text-left p-5 rounded-2xl border transition-all relative ${activeTicket?.id === t.id ? 'border-primary bg-primary/10' : 'border-white/5 bg-white/5 hover:border-white/20'}`}>
+                                                                {t.has_unread_admin && <span className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>}
+                                                                <div className="flex items-center gap-3 mb-2">
+                                                                    <div className="w-7 h-7 rounded-full bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">{tUser.avatar_url ? <img src={tUser.avatar_url} className="w-full h-full object-cover" /> : <Icon name="user" className="h-3.5 w-3.5 opacity-40" />}</div>
+                                                                    <p className="font-black text-sm uppercase tracking-tight truncate">{t.username}</p>
+                                                                </div>
+                                                                <p className="text-[9px] opacity-40 font-bold truncate">{t.subject}</p>
+                                                                <div className="flex items-center gap-2 mt-2">
+                                                                    <span className="text-[8px] opacity-30 font-bold">{t.id}</span>
+                                                                    {t.claimed_admin && <span className="flex items-center gap-1 text-[8px] text-primary font-black uppercase"><img src="images/adminlogo.png" className="w-3 h-3 object-contain" /> {t.claimed_admin.username}</span>}
+                                                                </div>
+                                                            </button>
+                                                            );
+                                                        })}
+                                                        {tickets.filter(t => t.status === adminTicketTab).length === 0 && <p className="text-center py-8 opacity-20 text-[9px] font-black uppercase tracking-[0.4em]">No {adminTicketTab} tickets</p>}
+                                                    </div>
+                                                    <div className="flex-1 bg-card border border-border rounded-2xl flex flex-col overflow-hidden">
+                                                        {activeTicket ? (
+                                                            <>
+                                                                <div className="p-6 border-b border-border flex justify-between items-center">
+                                                                    <div className="flex items-center gap-4">
+                                                                        {(() => { const tU = getTicketUserInfo(activeTicket.user_email); return (
+                                                                            <div className="w-10 h-10 rounded-full bg-white/5 border border-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">{tU.avatar_url ? <img src={tU.avatar_url} className="w-full h-full object-cover" /> : <Icon name="user" className="h-5 w-5 opacity-40" />}</div>
+                                                                        ); })()}
+                                                                        <div>
+                                                                            <p className="font-black uppercase tracking-tight">{activeTicket.username}</p>
+                                                                            <p className="text-[9px] font-bold opacity-30 mt-0.5">{activeTicket.user_email} · {activeTicket.subject}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-3">
+                                                                        {activeTicket.claimed_admin && (
+                                                                            <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-xl">
+                                                                                <div className="w-5 h-5 rounded-full bg-primary/20 overflow-hidden flex items-center justify-center flex-shrink-0">{activeTicket.claimed_admin.avatar_url ? <img src={activeTicket.claimed_admin.avatar_url} className="w-full h-full object-cover" /> : <Icon name="user" className="h-3 w-3 text-primary" />}</div>
+                                                                                <span className="text-[8px] font-black text-primary uppercase tracking-widest">{activeTicket.claimed_admin.username}</span>
+                                                                            </div>
+                                                                        )}
+                                                                        {activeTicket.status === 'unclaimed' && <button onClick={() => claimTicket(activeTicket.id)} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">Claim</button>}
+                                                                        {activeTicket.status !== 'closed' && <button onClick={() => setClosingTicket(activeTicket)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">Close</button>}
+                                                                    </div>
+                                                                </div>
+                                                                <div ref={ticketChatRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
+                                                                    {(activeTicket.messages || []).map((m, idx) => (
+                                                                        m.is_system ? (
+                                                                            <div key={idx} className="text-center py-2"><p className="text-[9px] font-black opacity-20 uppercase tracking-widest italic">{m.text}</p></div>
+                                                                        ) : (
+                                                                        <div key={idx} className={`flex ${m.is_admin ? 'justify-end' : 'justify-start'}`}>
+                                                                            <div className={`max-w-[70%] p-4 rounded-2xl ${m.is_admin ? 'bg-primary/10 border border-primary/20 rounded-br-sm' : 'bg-white/5 border border-white/5 rounded-bl-sm'}`}>
+                                                                                <p className={`text-[9px] font-black uppercase tracking-widest mb-1.5 flex items-center gap-1.5 ${m.is_admin ? 'text-primary' : 'opacity-40'}`}>{m.is_admin ? <><img src="images/adminlogo.png" className="w-3.5 h-3.5 object-contain inline" /> {m.sender_name}</> : m.sender_name}</p>
+                                                                                <p className="text-sm font-medium leading-relaxed">{m.text}</p>
+                                                                                <p className="text-[8px] opacity-20 mt-2 font-bold">{new Date(m.time).toLocaleString()}</p>
+                                                                            </div>
+                                                                        </div>
+                                                                        )
+                                                                    ))}
+                                                                </div>
+                                                                {activeTicket.status !== 'closed' && (
+                                                                    <div className="p-5 border-t border-border flex gap-3">
+                                                                        <input value={ticketMessage} onChange={e => setTicketMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendTicketMessage(activeTicket.id, ticketMessage, true)} placeholder="Reply as admin..." className="flex-1" />
+                                                                        <button onClick={() => sendTicketMessage(activeTicket.id, ticketMessage, true)} className="bg-primary px-6 rounded-xl font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition-all">Send</button>
+                                                                    </div>
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            <div className="flex-1 flex items-center justify-center"><p className="text-[10px] font-black uppercase opacity-15 tracking-[0.5em]">Select a ticket</p></div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                    </div>
+                                )}
+
+                                {view === 'support' && (
+                                    <div className="max-w-5xl mx-auto px-6 py-12 animate-in fade-in duration-500">
+                                        <div className="flex gap-8 h-[70vh]">
+                                            {/* Sidebar - Ticket List */}
+                                            <div className="w-80 flex-shrink-0 space-y-6">
+                                                <h2 className="text-2xl font-black italic tracking-tighter uppercase">Support <span className="text-primary">Tickets</span></h2>
+                                                <div className="space-y-3">
+                                                    <input value={ticketSubject} onChange={e => setTicketSubject(e.target.value)} placeholder="Describe your issue..." className="w-full" />
+                                                    <button onClick={() => createTicket(ticketSubject)} className="w-full bg-primary py-3 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow hover:brightness-110 transition-all">New Ticket</button>
+                                                </div>
+                                                <div className="space-y-3 overflow-y-auto max-h-[50vh] no-scrollbar">
+                                                    {userTickets.map(t => (
+                                                        <button key={t.id} onClick={() => { setActiveTicket(t); if (t.has_unread_user) markTicketRead(t.id, 'has_unread_user'); }} className={`w-full text-left p-5 rounded-2xl border transition-all relative ${activeTicket?.id === t.id ? 'border-primary bg-primary/10' : 'border-white/5 bg-white/5 hover:border-white/20'}`}>
+                                                            {t.has_unread_user && <span className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full bg-pink-500 animate-pulse"></span>}
+                                                            <p className="font-black text-sm uppercase tracking-tight truncate">{t.subject}</p>
+                                                            <div className="flex items-center gap-2 mt-2">
+                                                                <span className={`text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${t.status === 'unclaimed' ? 'bg-amber-500/10 text-amber-400' : t.status === 'open' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-white/30'}`}>{t.status}</span>
+                                                                <span className="text-[8px] opacity-30 font-bold">{t.id}</span>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                    {userTickets.length === 0 && <p className="text-center py-8 opacity-20 text-[9px] font-black uppercase tracking-[0.4em]">No tickets yet</p>}
+                                                </div>
+                                            </div>
+
+                                            {/* Chat Area */}
+                                            <div className="flex-1 bg-card border border-border rounded-[2rem] flex flex-col overflow-hidden">
+                                                {activeTicket ? (
+                                                    <>
+                                                        <div className="p-6 border-b border-border flex justify-between items-center">
+                                                            <div>
+                                                                <p className="font-black uppercase tracking-tight">{activeTicket.subject}</p>
+                                                                <p className="text-[9px] font-bold opacity-30 mt-1">{activeTicket.id} · {activeTicket.status.toUpperCase()}</p>
+                                                            </div>
+                                                            <div className="flex items-center gap-3">
+                                                                {activeTicket.claimed_admin && (
+                                                                    <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-xl">
+                                                                        <div className="w-5 h-5 rounded-full bg-primary/20 overflow-hidden flex items-center justify-center flex-shrink-0">{activeTicket.claimed_admin.avatar_url ? <img src={activeTicket.claimed_admin.avatar_url} className="w-full h-full object-cover" /> : <Icon name="user" className="h-3 w-3 text-primary" />}</div>
+                                                                        <span className="text-[8px] font-black text-primary uppercase tracking-widest">{activeTicket.claimed_admin.username}</span>
+                                                                    </div>
+                                                                )}
+                                                                <span className={`text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${activeTicket.status === 'open' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' : activeTicket.status === 'closed' ? 'border-red-500/30 text-red-400 bg-red-500/5' : 'border-amber-500/30 text-amber-400 bg-amber-500/5'}`}>{activeTicket.status}</span>
+                                                            </div>
+                                                        </div>
+                                                        <div ref={ticketChatRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
+                                                            {(activeTicket.messages || []).map((m, idx) => (
+                                                                m.is_system ? (
+                                                                    <div key={idx} className="text-center py-2"><p className="text-[9px] font-black opacity-20 uppercase tracking-widest italic">{m.text}</p></div>
+                                                                ) : (
+                                                                <div key={idx} className={`flex ${m.is_admin ? 'justify-start' : 'justify-end'}`}>
+                                                                    <div className={`max-w-[70%] p-4 rounded-2xl ${m.is_admin ? 'bg-primary/10 border border-primary/20 rounded-bl-sm' : 'bg-white/5 border border-white/5 rounded-br-sm'}`}>
+                                                                        <p className={`text-[9px] font-black uppercase tracking-widest mb-1.5 flex items-center gap-1.5 ${m.is_admin ? 'text-primary' : 'opacity-40'}`}>{m.is_admin ? <><img src="images/adminlogo.png" className="w-3.5 h-3.5 object-contain inline" /> {m.sender_name}</> : m.sender_name}</p>
+                                                                        <p className="text-sm font-medium leading-relaxed">{m.text}</p>
+                                                                        <p className="text-[8px] opacity-20 mt-2 font-bold">{new Date(m.time).toLocaleString()}</p>
+                                                                    </div>
+                                                                </div>
+                                                                )
+                                                            ))}
+                                                        </div>
+                                                        {activeTicket.status !== 'closed' && (
+                                                            <div className="p-5 border-t border-border flex gap-3">
+                                                                <input value={ticketMessage} onChange={e => setTicketMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendTicketMessage(activeTicket.id, ticketMessage)} placeholder="Type a message..." className="flex-1" />
+                                                                <button onClick={() => sendTicketMessage(activeTicket.id, ticketMessage)} className="bg-primary px-6 rounded-xl font-black uppercase text-[10px] tracking-widest hover:brightness-110 transition-all">Send</button>
+                                                            </div>
+                                                        )}
+                                                        {activeTicket.status === 'closed' && <div className="p-5 border-t border-border text-center"><p className="text-[10px] font-black uppercase opacity-20 tracking-widest">This ticket has been closed</p></div>}
+                                                    </>
+                                                ) : (
+                                                    <div className="flex-1 flex items-center justify-center"><p className="text-[10px] font-black uppercase opacity-15 tracking-[0.5em]">Select a ticket to view</p></div>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
                                 {view === 'checkout' && (
-                                    <div className="max-w-2xl mx-auto py-24 px-6 text-center animate-in zoom-in-95 duration-700">
-                                        <div className="bg-card border border-border rounded-[4rem] p-16 shadow-2xl">
-                                            <div className="h-24 w-24 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-10 border border-primary/20 shadow-glow"><Icon name="check" className="h-12 w-12 text-primary" /></div>
-                                            <h2 className="text-5xl font-black italic mb-6 tracking-tighter uppercase">Order <span className="text-primary font-light">Confirmed</span></h2>
-                                            <div className="bg-white/5 border border-border rounded-3xl p-8 mb-10 text-center">
-                                                <p className="text-[10px] font-black uppercase opacity-30 tracking-[0.4em] mb-3">Order Confirmation ID</p>
-                                                <p className="text-4xl font-black text-primary tracking-widest mb-6">{orderId}</p>
+                                    <div className="max-w-3xl mx-auto py-16 px-6 animate-in fade-in duration-700">
+                                        {checkoutStep === 1 ? (
+                                            <div className="bg-card border border-border rounded-[3rem] p-12 shadow-2xl space-y-10">
+                                                <div className="text-center space-y-3">
+                                                    <h2 className="text-4xl font-black italic uppercase tracking-tighter">Secure <span className="text-primary">Checkout</span></h2>
+                                                    <div className="flex justify-center gap-2">
+                                                        <div className="w-8 h-1 rounded-full bg-primary"></div>
+                                                        <div className="w-8 h-1 rounded-full bg-white/10"></div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Order Summary */}
+                                                <div className="bg-white/5 border border-white/5 rounded-2xl p-8 space-y-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Order Summary</p>
+                                                    {cart.map((item, idx) => (
+                                                        <div key={idx} className="flex justify-between items-center py-3 border-b border-white/5 last:border-0">
+                                                            <div className="flex items-center gap-4">
+                                                                <img src={item.p.image_url} className="w-10 h-10 rounded-lg object-cover" />
+                                                                <div>
+                                                                    <p className="font-black text-sm uppercase">{item.p.name}</p>
+                                                                    <p className="text-[9px] text-primary uppercase font-black tracking-widest">{item.plan} × {item.qty}</p>
+                                                                </div>
+                                                            </div>
+                                                            <p className="font-black">${(item.price * item.qty).toFixed(2)}</p>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                {/* Payment Method */}
+                                                <div className="space-y-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Payment Method</p>
+                                                    <div className="grid grid-cols-3 gap-4">
+                                                        {[
+                                                            { id: 'paypal', label: 'PayPal', icon: 'images/paypal.png' },
+                                                            { id: 'revolut', label: 'Revolut', icon: 'images/revolut.png' },
+                                                            { id: 'giftcard', label: 'Gift Card', icon: 'images/giftcard.png' }
+                                                        ].map(m => (
+                                                            <button key={m.id} onClick={() => setPaymentMethod(m.id)} className={`p-6 rounded-2xl border transition-all flex flex-col items-center gap-3 group ${paymentMethod === m.id ? 'border-primary bg-primary/10 shadow-glow' : 'border-white/5 bg-white/5 hover:border-white/20'}`}>
+                                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden ${paymentMethod === m.id ? 'bg-primary/20' : 'bg-white/5'}`}>
+                                                                    <img src={m.icon} className="w-8 h-8 object-contain" onError={(e) => { e.target.style.display='none'; e.target.parentNode.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-primary"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>'; }} />
+                                                                </div>
+                                                                <span className={`text-[10px] font-black uppercase tracking-widest ${paymentMethod === m.id ? 'text-white' : 'text-white/40'}`}>{m.label}</span>
+                                                                {paymentMethod === m.id && <div className="w-2 h-2 rounded-full bg-primary shadow-glow"></div>}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Coupon */}
+                                                <div className="space-y-4">
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Discount Code</p>
+                                                    <div className="flex gap-3">
+                                                        <input value={couponCode} onChange={e => setCouponCode(e.target.value)} placeholder="Enter coupon code..." className="flex-1" />
+                                                        <button onClick={applyCoupon} className="bg-white/5 border border-white/5 px-6 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-primary hover:text-black transition-all">Apply</button>
+                                                    </div>
+                                                    {appliedCoupon && (
+                                                        <div className="flex items-center justify-between bg-emerald-500/10 border border-emerald-500/20 px-6 py-3 rounded-xl">
+                                                            <div className="flex items-center gap-3">
+                                                                <Icon name="tag" className="h-4 w-4 text-emerald-400" />
+                                                                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">{appliedCoupon.code} — {appliedCoupon.discount_percent}% OFF</span>
+                                                            </div>
+                                                            <button onClick={() => { setAppliedCoupon(null); setCouponCode(''); }} className="text-red-400 hover:text-red-300"><Icon name="x" className="h-4 w-4" /></button>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Totals */}
+                                                <div className="bg-white/5 border border-white/5 rounded-2xl p-8 space-y-4">
+                                                    <div className="flex justify-between text-sm"><span className="opacity-40 font-bold uppercase">Subtotal</span><span className="font-black">${calculateSubtotal().toFixed(2)}</span></div>
+                                                    {appliedCoupon && <div className="flex justify-between text-sm text-emerald-400"><span className="font-bold uppercase">Discount ({appliedCoupon.discount_percent}%)</span><span className="font-black">-${(calculateSubtotal() * appliedCoupon.discount_percent / 100).toFixed(2)}</span></div>}
+                                                    <div className="flex justify-between text-xl pt-4 border-t border-white/10"><span className="font-black uppercase">Total</span><span className="font-black text-primary">${calculateTotal().toFixed(2)} EUR</span></div>
+                                                </div>
+
+                                                <div className="flex gap-4">
+                                                    <button onClick={() => setView('home')} className="flex-1 bg-white/5 py-5 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-white/10 transition-all">Back</button>
+                                                    <button onClick={handleCheckout} className={`flex-[2] bg-primary py-5 rounded-2xl font-black uppercase text-sm tracking-widest shadow-glow hover:brightness-110 transition-all flex items-center justify-center gap-3 ${isProcessing ? 'btn-disabled' : ''}`}>
+                                                        {isProcessing ? 'Processing...' : 'Place Order'} <Icon name="arrow-right" className="h-5 w-5" />
+                                                    </button>
+                                                </div>
                                             </div>
-                                            
-                                            <div className="bg-white/5 border border-white/5 p-10 rounded-[2rem] text-left mb-10 space-y-6">
-                                                <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em]">Payment Instructions</p>
-                                                <p className="text-xs text-white/60 font-bold leading-relaxed uppercase tracking-tight italic">
-                                                    To complete your purchase, please join our Discord server and open a <span className="text-white">#payment-ticket</span>. 
-                                                    Provide your Order ID <span className="text-primary">({orderId})</span> and our staff will assist you with the payment process.
-                                                </p>
+                                        ) : (
+                                            <div className="bg-card border border-border rounded-[3rem] p-16 shadow-2xl text-center space-y-10 animate-in zoom-in-95 duration-700">
+                                                <div className="h-20 w-20 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto border border-emerald-500/20"><Icon name="check-circle" className="h-10 w-10 text-emerald-400" /></div>
+                                                <div>
+                                                    <h2 className="text-4xl font-black italic uppercase tracking-tighter mb-3">Order <span className="text-emerald-400">Placed!</span></h2>
+                                                    <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-30">Your order has been submitted successfully</p>
+                                                </div>
+
+                                                <div className="bg-white/5 border border-border rounded-2xl p-8">
+                                                    <p className="text-[10px] font-black uppercase opacity-30 tracking-[0.4em] mb-3">Order ID</p>
+                                                    <p className="text-4xl font-black text-primary tracking-widest">{orderId}</p>
+                                                </div>
+
+                                                <div className="bg-white/5 border border-white/5 p-10 rounded-2xl text-left space-y-6">
+                                                    <p className="text-[10px] font-black text-primary uppercase tracking-[0.4em]">Payment Instructions — {paymentMethod?.toUpperCase()}</p>
+                                                    {paymentMethod === 'paypal' && (
+                                                        <div className="space-y-4 text-sm text-white/60 font-bold leading-relaxed">
+                                                            <p>1. Send payment to: <span className="text-white font-black">paypal@szhservices.com</span></p>
+                                                            <p>2. Include your Order ID <span className="text-primary font-black">{orderId}</span> in the payment note.</p>
+                                                            <p>3. Join our Discord and open a <span className="text-white">#payment-ticket</span> for confirmation.</p>
+                                                        </div>
+                                                    )}
+                                                    {paymentMethod === 'revolut' && (
+                                                        <div className="space-y-4 text-sm text-white/60 font-bold leading-relaxed">
+                                                            <p>1. Send payment to Revolut tag: <span className="text-white font-black">@szhservices</span></p>
+                                                            <p>2. Include your Order ID <span className="text-primary font-black">{orderId}</span> in the note.</p>
+                                                            <p>3. Join our Discord and open a <span className="text-white">#payment-ticket</span> for confirmation.</p>
+                                                        </div>
+                                                    )}
+                                                    {paymentMethod === 'giftcard' && (
+                                                        <div className="space-y-4 text-sm text-white/60 font-bold leading-relaxed">
+                                                            <p>1. Join our <span className="text-[#5865F2] font-black">Discord server</span> and open a ticket.</p>
+                                                            <p>2. Provide your Order ID <span className="text-primary font-black">{orderId}</span> and your gift card details.</p>
+                                                            <p>3. Our staff will verify and process your order.</p>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex gap-4">
+                                                    <button onClick={() => setView('purchases')} className="flex-1 bg-white/5 py-5 rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-white/10 transition-all">My Purchases</button>
+                                                    <a href="https://discord.gg/szhservices" target="_blank" className="flex-1 bg-[#5865F2] py-5 rounded-2xl font-black uppercase text-sm tracking-widest flex items-center justify-center gap-3 hover:brightness-110 transition-all">Join Discord <Icon name="external-link" className="h-4 w-4" /></a>
+                                                </div>
                                             </div>
-                                            
-                                            <a href="https://discord.gg/szhservices" target="_blank" className="w-full bg-[#5865F2] py-6 rounded-[2rem] font-black text-2xl uppercase italic shadow-glow flex items-center justify-center gap-4 hover:brightness-110 transition-all">JOIN DISCORD <Icon name="external-link" /></a>
-                                        </div>
+                                        )}
                                     </div>
                                 )}
                             </>
@@ -1382,7 +1856,7 @@
                                 {cart.length > 0 && (
                                     <div className="mt-10 border-t border-white/5 pt-10">
                                         <div className="flex justify-between items-end mb-10"><span className="text-xs font-black uppercase opacity-20 tracking-widest">Total</span><span className="text-4xl font-black text-gradient">${cart.reduce((s,i)=>s+(i.price*i.qty),0).toFixed(2)}</span></div>
-                                        <button onClick={handleCheckout} className="w-full bg-primary py-6 rounded-[2rem] font-black text-2xl italic uppercase shadow-glow hover:brightness-110 transition-all">Checkout</button>
+                                        <button onClick={startCheckoutFlow} className="w-full bg-primary py-6 rounded-[2rem] font-black text-2xl italic uppercase shadow-glow hover:brightness-110 transition-all">Checkout</button>
                                     </div>
                                 )}
                             </div>
@@ -1587,6 +2061,21 @@
                                 <div className="grid grid-cols-2 gap-4">
                                     <button onClick={()=>setEditingUserAccount(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
                                     <button onClick={() => finalizeUserAccountChange(editingUserAccount.email, {email: document.getElementById('editUserEmail').value, pass: document.getElementById('editUserPass').value})} className="bg-blue-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Save</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {closingTicket && (
+                        <div className="fixed inset-0 z-[300] flex items-center justify-center p-6">
+                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setClosingTicket(null)}></div>
+                            <div className="relative bg-card border border-red-500/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
+                                <div className="h-16 w-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-red-500/20"><Icon name="alert-triangle" className="h-8 w-8 text-red-400" /></div>
+                                <h3 className="text-3xl font-black uppercase italic mb-4">Close <span className="text-red-400">Ticket?</span></h3>
+                                <p className="text-sm text-white/40 font-bold mb-10">Are you sure you want to close ticket <span className="text-white font-black">{closingTicket.id}</span>? The user will be notified and the conversation will be saved.</p>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button onClick={()=>setClosingTicket(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
+                                    <button onClick={() => closeTicket(closingTicket.id)} className="bg-red-500 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-glow">Close Ticket</button>
                                 </div>
                             </div>
                         </div>
