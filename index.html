@@ -267,6 +267,24 @@
             const [confirmTicketSubject, setConfirmTicketSubject] = useState('');
             const ticketChatRef = useRef(null);
 
+            // Dynamic Browser Tab Title (Slash Style)
+            useEffect(() => {
+                let title = "SZH SERVICES";
+                if (!user) {
+                    title += " / LOGIN";
+                } else {
+                    const viewUpper = view.toUpperCase();
+                    title += ` / ${viewUpper}`;
+                    
+                    if (view === 'admin') {
+                        title += ` / ${adminTab.toUpperCase()}`;
+                    } else if (view === 'support' && activeTicket) {
+                        title += ` / ${activeTicket.id}`;
+                    }
+                }
+                document.title = title;
+            }, [view, adminTab, activeTicket, user]);
+
             // --- INITIAL DATA FETCH ---
             const refreshData = async () => {
                 const { data: pData } = await _supabase.from('products').select('*');
