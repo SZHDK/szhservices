@@ -398,7 +398,7 @@
                         }).eq('email', user.email);
 
                         if (!error) {
-                            setUser(prev => ({ ...prev, discord_info: discordInfo, avatar_url: prev.avatar_url || avatarUrl }));
+                            setUser(prev => ({ ...prev, discord_info: discordInfo, avatar_url: user.avatar_url || avatarUrl }));
                             setUsers(prev => prev.map(u => u.email === user.email ? {
                                 ...u, 
                                 discord_info: discordInfo,
@@ -471,6 +471,43 @@
                 } catch(e) {
                     console.error('Discord API Fetch Error:', e);
                     notify('Connection to Discord Bridge failed', 'error');
+                }
+            };
+
+            const sendDiscordDM = async (discordUserId, message) => {
+                if (!DISCORD_BOT_TOKEN || DISCORD_BOT_TOKEN === "YOUR_BOT_TOKEN_HERE") return;
+                try {
+                    const baseUrl = DISCORD_BRIDGE_URL && !DISCORD_BRIDGE_URL.includes("PASTE_YOUR") 
+                        ? DISCORD_BRIDGE_URL.replace(/\/$/, "") 
+                        : "https://discord.com/api";
+
+                    // Create DM Channel
+                    const dmRes = await fetch(`${baseUrl}/users/@me/channels`, {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ recipient_id: discordUserId })
+                    });
+                    const channel = await dmRes.json();
+                    
+                    if (channel.id) {
+                        await fetch(`${baseUrl}/channels/${channel.id}/messages`, {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ content: message })
+                        });
+                    }
+                } catch(e) {
+                    console.error('Discord DM Error:', e);
+                }
+            };
+
+            const updateNotificationPrefs = async (type, val) => {
+                const prefs = user.notifications || { orders: true, tickets: true };
+                const newPrefs = { ...prefs, [type]: val };
+                const { error } = await _supabase.from('szh_users').update({ notifications: newPrefs }).eq('email', user.email);
+                if (!error) {
+                    setUser({ ...user, notifications: newPrefs });
+                    notify("Notification preferences updated.");
                 }
             };
 
@@ -702,14 +739,6 @@
                 if (!text.trim()) return;
                 const ticket = tickets.find(t => t.id === ticketId);
                 if (!ticket) return;
-                const newMsg = { sender: user.email, sender_name: user.username || user.email, text, time: new Date().toISOString(), is_admin: isAdmin || user.role === 'admin' };
-                const updatedMessages = [...(ticket.messages || []), newMsg];
-                const updates = { messages: updatedMessages };
-                if (user.role !== 'admin') updates.has_unread_admin = true;
-                else updates.has_unread_user = true;
-                const { error } = await _supabase.from('tickets').update(updates).eq('id', ticketId);
-                if (!error) {
-                    const updated = tickets.map(t => t.id === ticketId ? { ...t, ...updates } : t);
                     setTickets(updated);
                     setActiveTicket({ ...ticket, ...updates });
                     setTicketMessage('');
@@ -729,6 +758,18 @@
                     setTickets(updated);
                     setActiveTicket(updated.find(t => t.id === ticketId));
                     notify("Ticket claimed!");
+                }
+            };
+
+            const setTicketWaitingUser = async (ticketId) => {
+                const { error } = await _supabase.from('tickets').update({ status: 'waiting_user' }).eq('id', ticketId);
+                if (!error) {
+                    notify("Ticket marked: Waiting for User Response");
+                    const ticket = tickets.find(t => t.id === ticketId);
+                    const targetUser = users.find(u => u.email === ticket.user_email);
+                    if (targetUser?.discord_info && targetUser.notifications?.tickets !== false) {
+                        sendDiscordDM(targetUser.discord_info.id, `⚠️ **SZH SERVICES**: An admin is waiting for your response on ticket "${ticket.subject}".`);
+                    }
                 }
             };
 
@@ -1753,6 +1794,7 @@
                                                                             </div>
                                                                         )}
                                                                         {activeTicket.status === 'unclaimed' && <button onClick={() => claimTicket(activeTicket.id)} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">Claim</button>}
+                                                                        {activeTicket.status === 'open' && <button onClick={() => setTicketWaitingUser(activeTicket.id)} className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 transition-all">Wait for User</button>}
                                                                         {activeTicket.status !== 'closed' ? (
                                                                             <button onClick={() => setClosingTicket(activeTicket)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">Close</button>
                                                                         ) : (
