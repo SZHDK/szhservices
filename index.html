@@ -739,9 +739,27 @@
                 if (!text.trim()) return;
                 const ticket = tickets.find(t => t.id === ticketId);
                 if (!ticket) return;
-                    setTickets(updated);
-                    setActiveTicket({ ...ticket, ...updates });
+                
+                const msg = { sender: user.email, sender_name: user.username || user.email, text: text.trim(), time: new Date().toISOString(), is_admin: isAdmin };
+                const updatedMessages = [...(ticket.messages || []), msg];
+                
+                let updateData = { messages: updatedMessages };
+                if (isAdmin) {
+                    updateData.has_unread_user = true;
+                } else {
+                    updateData.has_unread_admin = true;
+                    if (ticket.status === 'waiting_user') updateData.status = 'open';
+                }
+
+                const { error } = await _supabase.from('tickets').update(updateData).eq('id', ticketId);
+                if (!error) {
                     setTicketMessage('');
+                    if (isAdmin) {
+                        const targetUser = users.find(u => u.email === ticket.user_email);
+                        if (targetUser?.discord_info && targetUser.notifications?.tickets !== false) {
+                            sendDiscordDM(targetUser.discord_info.id, `🔔 **SZH SERVICES**: New reply on ticket "${ticket.subject}"!\nCheck it here: https://szhdk.github.io/szhservices/#/support`);
+                        }
+                    }
                 }
             };
 
@@ -1054,8 +1072,6 @@
                 const order = orders.find(o => o.id === oid);
                 const newKeys = order.keys.map((k, i) => i === idx ? v : k);
                 setOrders(orders.map(o => o.id === oid ? {...o, keys: newKeys} : o));
-                // Only sync on blur or periodically to avoid too many DB calls? 
-                // For now just sync every time for simplicity
                 updateOrderKeysInDb(oid, newKeys);
             };
 
@@ -1069,7 +1085,7 @@
             const updateUserRole = async (email, newRole) => {
                 if (email === user.email) return; 
                 if (newRole === 'admin') {
-                    setPromotingAdmin(email);
+                    setPromotingAdmin(users.find(u => u.email === email));
                     return;
                 }
                 const { error } = await _supabase.from('szh_users').update({ role: newRole }).eq('email', email);
@@ -1080,9 +1096,9 @@
             };
 
             const finalizeAdminPromotion = async () => {
-                const { error } = await _supabase.from('szh_users').update({ role: 'admin' }).eq('email', promotingAdmin);
+                const { error } = await _supabase.from('szh_users').update({ role: 'admin' }).eq('email', promotingAdmin.email);
                 if (!error) {
-                    setUsers(users.map(u => u.email === promotingAdmin ? {...u, role: 'admin'} : u));
+                    setUsers(users.map(u => u.email === promotingAdmin.email ? {...u, role: 'admin'} : u));
                     setPromotingAdmin(null);
                     notify("User promoted to Admin.");
                 }
@@ -1093,15 +1109,12 @@
                     const { error } = await _supabase.from('szh_users').delete().eq('email', deletingUser.email);
                     if (!error) {
                         setUsers(users.filter(u => u.email !== deletingUser.email));
-                        // Also delete orders in Supabase if needed? 
-                        // For now just local filter
                         setDeletingUser(null);
                         setConfirmEmail('');
                         notify("User deleted permanently.");
                     }
                 } else {
-                    notify("Email did not match. Deletion cancelled.", "error");
-                    setDeletingUser(null);
+                    notify("Email did not match.", "error");
                 }
             };
 
@@ -1136,7 +1149,6 @@
                 }
             };
 
-            // Derived Data
             const games = useMemo(() => {
                 const groups = {};
                 products.forEach(p => {
@@ -1149,7 +1161,6 @@
             }, [products]);
 
             const userOrders = user ? orders.filter(o => o.user_email === user.email) : [];
-            
             const filteredUsers = users.filter(u => 
                 u.email.toLowerCase().includes(userSearch.toLowerCase()) || 
                 (u.username || '').toLowerCase().includes(userSearch.toLowerCase())
