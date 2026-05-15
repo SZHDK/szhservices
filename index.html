@@ -382,48 +382,6 @@
                 }
             }, [user, users]);
 
-            // --- REALTIME SUBSCRIPTIONS ---
-            useEffect(() => {
-                const userSub = _supabase.channel('users-sync')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'szh_users' }, payload => {
-                        if (payload.eventType === 'UPDATE') {
-                            setUsers(prev => prev.map(u => u.email === payload.new.email ? payload.new : u));
-                        } else if (payload.eventType === 'INSERT') {
-                            setUsers(prev => [...prev, payload.new]);
-                        } else if (payload.eventType === 'DELETE') {
-                            setUsers(prev => prev.filter(u => u.id !== payload.old.id));
-                        }
-                    }).subscribe();
-
-                const ticketSub = _supabase.channel('tickets-sync')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, payload => {
-                        if (payload.eventType === 'UPDATE') {
-                            setTickets(prev => prev.map(t => t.id === payload.new.id ? payload.new : t));
-                        } else if (payload.eventType === 'INSERT') {
-                            setTickets(prev => [payload.new, ...prev]);
-                        } else if (payload.eventType === 'DELETE') {
-                            setTickets(prev => prev.filter(t => t.id !== payload.old.id));
-                        }
-                    }).subscribe();
-
-                const orderSub = _supabase.channel('orders-sync')
-                    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
-                        if (payload.eventType === 'UPDATE') {
-                            setOrders(prev => prev.map(o => o.id === payload.new.id ? payload.new : o));
-                        } else if (payload.eventType === 'INSERT') {
-                            setOrders(prev => [payload.new, ...prev]);
-                        } else if (payload.eventType === 'DELETE') {
-                            setOrders(prev => prev.filter(o => o.id !== payload.old.id));
-                        }
-                    }).subscribe();
-
-                return () => {
-                    _supabase.removeChannel(userSub);
-                    _supabase.removeChannel(ticketSub);
-                    _supabase.removeChannel(orderSub);
-                };
-            }, []);
-
             // NOTIFICATION HELPER
             const notify = (msg, type = 'success') => {
                 setNotification({ msg, type });
@@ -435,9 +393,11 @@
                 const fragment = new URLSearchParams(window.location.hash.slice(1));
                 const accessToken = fragment.get('access_token');
                 
-                if (accessToken && user) {
-                    window.history.replaceState({}, document.title, window.location.pathname);
+                if (accessToken && user && !isProcessing) {
+                    // Immediately clear hash to prevent loops
+                    window.location.hash = '/settings'; 
                     setIsProcessing(true);
+                    
                     fetch('https://discord.com/api/users/@me', {
                         headers: { Authorization: `Bearer ${accessToken}` }
                     })
@@ -449,22 +409,14 @@
                         
                         const discordInfo = { id: data.id, username: data.username, avatar: avatarUrl };
                         
-                        // Update Supabase
                         const { error } = await _supabase.from('szh_users').update({ 
                             discord_info: discordInfo,
                             avatar_url: user.avatar_url || avatarUrl 
                         }).eq('email', user.email);
 
                         if (!error) {
-                            setUser(prev => ({ ...prev, discord_info: discordInfo, avatar_url: user.avatar_url || avatarUrl }));
-                            setUsers(prev => prev.map(u => u.email === user.email ? {
-                                ...u, 
-                                discord_info: discordInfo,
-                                avatar_url: u.avatar_url || avatarUrl
-                            } : u));
+                            setUser(prev => ({ ...prev, discord_info: discordInfo, avatar_url: prev.avatar_url || avatarUrl }));
                             notify(`Connected to Discord as ${data.username}!`);
-                        } else {
-                            notify("Failed to save Discord link to database.", "error");
                         }
                         
                         setSettingsTab('discord');
@@ -475,7 +427,7 @@
                         setIsProcessing(false);
                     });
                 }
-            }, [user]);
+            }, [user?.email, isProcessing]);
 
             const handleDiscordRedirect = () => {
                 if (DISCORD_CLIENT_ID === "YOUR_CLIENT_ID_HERE") {
@@ -563,7 +515,7 @@
                 const newPrefs = { ...prefs, [type]: val };
                 const { error } = await _supabase.from('szh_users').update({ notifications: newPrefs }).eq('email', user.email);
                 if (!error) {
-                    setUser({ ...user, notifications: newPrefs });
+                    setUser(prev => ({ ...prev, notifications: newPrefs }));
                     notify("Notification preferences updated.");
                 }
             };
@@ -977,8 +929,8 @@
                             setUsers(prev => [...prev, payload.new]);
                         } else if (payload.eventType === 'UPDATE') {
                             setUsers(prev => prev.map(u => u.email === payload.new.email ? payload.new : u));
-                            if (payload.new.email === user.email) {
-                                setUser(payload.new);
+                            if (payload.new.email === user?.email) {
+                                setUser(prev => JSON.stringify(prev) !== JSON.stringify(payload.new) ? payload.new : prev);
                             }
                         } else if (payload.eventType === 'DELETE') {
                             setUsers(prev => prev.filter(u => u.email !== payload.old.email));
@@ -996,16 +948,15 @@
                     .subscribe();
 
                 return () => { _supabase.removeChannel(channel); };
-            }, [user]);
+            }, []); // No dependencies to prevent re-subscribing loops
 
             // Fallback polling for extra reliability (every 30s)
             useEffect(() => {
-                if (!user) return;
                 const interval = setInterval(() => {
                     refreshData();
-                }, 5000); // Faster sync fallback (5s)
+                }, 30000); // 30s fallback is plenty with realtime active
                 return () => clearInterval(interval);
-            }, [user]);
+            }, []);
 
             const startCheckoutFlow = () => {
                 setCartOpen(false);
