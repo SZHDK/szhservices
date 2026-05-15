@@ -815,22 +815,33 @@
                 const { error } = await _supabase.from('orders').insert([newOrder]);
                 if (!error) {
                     setOrders([newOrder, ...orders]);
+                    const subtotal = calculateSubtotal();
+                    const discountAmt = (subtotal - parseFloat(total)).toFixed(2);
                     const itemsStr = cart.map(i => `• **${i.p.name}** (${i.plan.toUpperCase()}) x${i.qty} - $${(i.price*i.qty).toFixed(2)}`).join('\n');
+                    
                     try {
+                        const fields = [
+                            { name: "Order ID", value: `\`${oid}\``, inline: true },
+                            { name: "Customer", value: `\`${user.email}\``, inline: true },
+                            { name: "Total", value: `**$${total} EUR**`, inline: true },
+                            { name: "Method", value: paymentMethod.toUpperCase(), inline: true }
+                        ];
+
+                        if (appliedCoupon) {
+                            fields.push({ name: "Coupon Used", value: `\`${appliedCoupon.code}\` (${appliedCoupon.discount_percent}%)`, inline: true });
+                            fields.push({ name: "Discount", value: `-$${discountAmt} EUR`, inline: true });
+                        }
+
+                        fields.push({ name: "Items", value: itemsStr });
+
                         await fetch(DISCORD_WEBHOOK_URL, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 embeds: [{
                                     title: "🔔 NEW ORDER",
-                                    color: 9133302,
-                                    fields: [
-                                        { name: "Order ID", value: `\`${oid}\``, inline: true },
-                                        { name: "Customer", value: `\`${user.email}\``, inline: true },
-                                        { name: "Total", value: `**$${total} EUR**`, inline: true },
-                                        { name: "Method", value: paymentMethod.toUpperCase(), inline: true },
-                                        { name: "Items", value: itemsStr }
-                                    ],
+                                    color: appliedCoupon ? 3066993 : 9133302, // Green if discounted, Gold/Yellow if normal
+                                    fields: fields,
                                     timestamp: new Date().toISOString()
                                 }]
                             })
@@ -2170,25 +2181,13 @@
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <button onClick={()=>setDeletingTicket(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-                                    <button onClick={() => deleteTicket(deletingTicket.id)} className={`py-4 rounded-xl font-black uppercase text-[10px] tracking-widest ${confirmTicketSubject === deletingTicket.subject ? 'bg-red-500 shadow-glow' : 'opacity-20 cursor-not-allowed bg-red-500'}`}>Delete Forever</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {deletingTicket && (
-                        <div className="fixed inset-0 z-[400] flex items-center justify-center p-6">
-                            <div className="absolute inset-0 bg-background/95 backdrop-blur-sm" onClick={()=>setDeletingTicket(null)}></div>
-                            <div className="relative bg-card border border-red-500/20 w-full max-w-lg p-12 rounded-[2.5rem] shadow-2xl modal-animate text-center">
-                                <div className="h-16 w-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-red-500/20"><Icon name="trash-2" className="h-8 w-8 text-red-400" /></div>
-                                <h3 className="text-3xl font-black uppercase italic mb-4 text-red-500">Delete <span className="text-white">Ticket?</span></h3>
-                                <div className="space-y-4 text-left mb-10">
-                                    <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Confirm by typing the subject: {deletingTicket.subject}</label>
-                                    <input value={confirmTicketSubject} onChange={e=>setConfirmTicketSubject(e.target.value)} placeholder={deletingTicket.subject} className="w-full border-red-500/30 text-red-400" />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={()=>setDeletingTicket(null)} className="bg-white/5 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
-                                    <button onClick={() => deleteTicket(deletingTicket.id)} className={`py-4 rounded-xl font-black uppercase text-[10px] tracking-widest ${confirmTicketSubject === deletingTicket.subject ? 'bg-red-500 shadow-glow' : 'opacity-20 cursor-not-allowed bg-red-500'}`}>Delete Forever</button>
+                                    <button 
+                                        disabled={confirmTicketSubject !== deletingTicket.subject}
+                                        onClick={() => deleteTicket(deletingTicket.id)} 
+                                        className={`py-4 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${confirmTicketSubject === deletingTicket.subject ? 'bg-red-500 shadow-glow opacity-100' : 'bg-red-500 opacity-20 cursor-not-allowed'}`}
+                                    >
+                                        Delete Forever
+                                    </button>
                                 </div>
                             </div>
                         </div>
