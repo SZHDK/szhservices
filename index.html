@@ -368,11 +368,61 @@
                         logout();
                         return;
                     }
-                    if (freshUser.role !== user.role || freshUser.password !== user.password || freshUser.username !== user.username || freshUser.avatar_url !== user.avatar_url || JSON.stringify(freshUser.discord_info) !== JSON.stringify(user.discord_info)) {
+                    const hasChanged = 
+                        freshUser.role !== user.role || 
+                        freshUser.password !== user.password || 
+                        freshUser.username !== user.username || 
+                        freshUser.avatar_url !== user.avatar_url || 
+                        JSON.stringify(freshUser.discord_info) !== JSON.stringify(user.discord_info) ||
+                        JSON.stringify(freshUser.notifications) !== JSON.stringify(user.notifications);
+
+                    if (hasChanged) {
                         setUser(freshUser);
                     }
                 }
             }, [user, users]);
+
+            // --- REALTIME SUBSCRIPTIONS ---
+            useEffect(() => {
+                const userSub = _supabase.channel('users-sync')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'szh_users' }, payload => {
+                        if (payload.eventType === 'UPDATE') {
+                            setUsers(prev => prev.map(u => u.email === payload.new.email ? payload.new : u));
+                        } else if (payload.eventType === 'INSERT') {
+                            setUsers(prev => [...prev, payload.new]);
+                        } else if (payload.eventType === 'DELETE') {
+                            setUsers(prev => prev.filter(u => u.id !== payload.old.id));
+                        }
+                    }).subscribe();
+
+                const ticketSub = _supabase.channel('tickets-sync')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, payload => {
+                        if (payload.eventType === 'UPDATE') {
+                            setTickets(prev => prev.map(t => t.id === payload.new.id ? payload.new : t));
+                        } else if (payload.eventType === 'INSERT') {
+                            setTickets(prev => [payload.new, ...prev]);
+                        } else if (payload.eventType === 'DELETE') {
+                            setTickets(prev => prev.filter(t => t.id !== payload.old.id));
+                        }
+                    }).subscribe();
+
+                const orderSub = _supabase.channel('orders-sync')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+                        if (payload.eventType === 'UPDATE') {
+                            setOrders(prev => prev.map(o => o.id === payload.new.id ? payload.new : o));
+                        } else if (payload.eventType === 'INSERT') {
+                            setOrders(prev => [payload.new, ...prev]);
+                        } else if (payload.eventType === 'DELETE') {
+                            setOrders(prev => prev.filter(o => o.id !== payload.old.id));
+                        }
+                    }).subscribe();
+
+                return () => {
+                    _supabase.removeChannel(userSub);
+                    _supabase.removeChannel(ticketSub);
+                    _supabase.removeChannel(orderSub);
+                };
+            }, []);
 
             // NOTIFICATION HELPER
             const notify = (msg, type = 'success') => {
