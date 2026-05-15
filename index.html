@@ -285,6 +285,16 @@
                 }
             }, [activeTicket?.messages]);
 
+            // Sync Active Ticket with Master List (The "Hard Sync")
+            useEffect(() => {
+                if (activeTicket) {
+                    const fresh = tickets.find(t => t.id === activeTicket.id);
+                    if (fresh && JSON.stringify(fresh.messages) !== JSON.stringify(activeTicket.messages)) {
+                        setActiveTicket(fresh);
+                    }
+                }
+            }, [tickets]);
+
             // Listen for Back/Forward Buttons
             useEffect(() => {
                 const handleHashChange = () => {
