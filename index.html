@@ -1491,17 +1491,32 @@
 
                                 {view === 'admin' && (
                                     <div className="max-w-6xl mx-auto px-6 py-12">
-                                        <div className="flex justify-between items-center mb-12 border-b border-border pb-8">
-                                            <div className="flex gap-10 overflow-x-auto no-scrollbar">
-                                                <button onClick={()=>setAdminTab('products')} className={`text-sm font-black uppercase tracking-[0.3em] whitespace-nowrap ${adminTab === 'products' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Inventory</button>
-                                                <button onClick={()=>setAdminTab('orders')} className={`text-sm font-black uppercase tracking-[0.3em] whitespace-nowrap ${adminTab === 'orders' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Orders</button>
-                                                <button onClick={()=>setAdminTab('users')} className={`text-sm font-black uppercase tracking-[0.3em] whitespace-nowrap ${adminTab === 'users' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Users</button>
-                                                <button onClick={()=>setAdminTab('coupons')} className={`text-sm font-black uppercase tracking-[0.3em] whitespace-nowrap ${adminTab === 'coupons' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Coupons</button>
-                                                <button onClick={()=>setAdminTab('tickets')} className={`text-sm font-black uppercase tracking-[0.3em] relative whitespace-nowrap ${adminTab === 'tickets' ? 'text-primary' : 'opacity-30 hover:opacity-100 transition-opacity'}`}>Tickets{tickets.some(t => t.has_unread_admin) && <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-pink-500 animate-pulse"></span>}</button>
+                                        <div className="flex flex-col gap-6 mb-12 border-b border-white/5 pb-8">
+                                            <div className="flex items-center gap-3 text-[10px] font-black tracking-[0.5em] text-white/20 uppercase italic">
+                                                <span>Admin</span>
+                                                <span className="opacity-10">/</span>
+                                                <span className="text-primary">{adminTab}</span>
+                                                {adminTab === 'tickets' && (
+                                                    <>
+                                                        <span className="opacity-10">/</span>
+                                                        <span className="text-pink-500">{adminTicketTab}</span>
+                                                    </>
+                                                )}
                                             </div>
-                                            <div className="flex items-center gap-6">
-                                                <button onClick={refreshData} className="p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-white/40 hover:text-white group" title="Refresh Data"><Icon name="refresh-cw" className={`h-5 w-5 ${isLoading ? 'animate-spin text-primary' : 'group-hover:rotate-180 transition-transform duration-500'}`} /></button>
-                                                <div className="w-64"><CustomSelect label="Website Status" value={siteStatus} onChange={setSiteStatus} options={[{value:'ONLINE', label:'ONLINE'}, {value:'MAINTENANCE', label:'MAINTENANCE'}, {value:'OFFLINE', label:'OFFLINE'}]} /></div>
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex gap-8 overflow-x-auto no-scrollbar">
+                                                    {['products', 'orders', 'users', 'coupons', 'tickets'].map(tab => (
+                                                        <button key={tab} onClick={()=>setAdminTab(tab)} className={`text-xs font-black uppercase tracking-[0.3em] whitespace-nowrap transition-all flex items-center gap-2 ${adminTab === tab ? 'text-primary' : 'opacity-30 hover:opacity-100'}`}>
+                                                            {adminTab === tab && <span className="text-primary">/</span>}
+                                                            {tab}
+                                                            {tab === 'tickets' && tickets.some(t => t.has_unread_admin) && <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse"></span>}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <div className="flex items-center gap-6">
+                                                    <button onClick={refreshData} className="p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all text-white/40 hover:text-white group" title="Refresh Data"><Icon name="refresh-cw" className={`h-5 w-5 ${isLoading ? 'animate-spin text-primary' : 'group-hover:rotate-180 transition-transform duration-500'}`} /></button>
+                                                    <div className="w-64"><CustomSelect label="Website Status" value={siteStatus} onChange={setSiteStatus} options={[{value:'ONLINE', label:'ONLINE'}, {value:'MAINTENANCE', label:'MAINTENANCE'}, {value:'OFFLINE', label:'OFFLINE'}]} /></div>
+                                                </div>
                                             </div>
                                         </div>
                                         
@@ -1711,6 +1726,17 @@
 
                                 {view === 'support' && (
                                     <div className="max-w-5xl mx-auto px-6 py-12 animate-in fade-in duration-500">
+                                        <div className="flex items-center gap-3 text-[10px] font-black tracking-[0.5em] text-white/20 uppercase italic mb-8">
+                                            <span>Dashboard</span>
+                                            <span className="opacity-10">/</span>
+                                            <span className="text-primary">Support</span>
+                                            {activeTicket && (
+                                                <>
+                                                    <span className="opacity-10">/</span>
+                                                    <span className="text-white">{activeTicket.id}</span>
+                                                </>
+                                            )}
+                                        </div>
                                         <div className="flex gap-8 h-[70vh]">
                                             {/* Sidebar - Ticket List */}
                                             <div className="w-80 flex-shrink-0 space-y-6">
