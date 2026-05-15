@@ -273,8 +273,30 @@
                 if (view === 'admin') path += `/${adminTab}`;
                 if (view === 'support' && activeTicket) path += `/${activeTicket.id}`;
                 
-                window.location.hash = path;
+                if (window.location.hash !== `#${path}`) {
+                    window.location.hash = path;
+                }
             }, [view, adminTab, activeTicket]);
+
+            // Listen for Back/Forward Buttons
+            useEffect(() => {
+                const handleHashChange = () => {
+                    const hash = window.location.hash.replace('#/', '');
+                    if (!hash) return;
+                    
+                    const parts = hash.split('/');
+                    const mainView = parts[0];
+                    const subView = parts[1];
+
+                    if (['home', 'admin', 'support', 'settings', 'login'].includes(mainView)) {
+                        setView(mainView);
+                        if (mainView === 'admin' && subView) setAdminTab(subView);
+                    }
+                };
+
+                window.addEventListener('hashchange', handleHashChange);
+                return () => window.removeEventListener('hashchange', handleHashChange);
+            }, []);
 
             // --- INITIAL DATA FETCH ---
             const refreshData = async () => {
