@@ -170,6 +170,14 @@
                 colors = "border-cyan-500/40 text-cyan-400 bg-cyan-500/5";
                 label = "TESTING";
             }
+            if (status === 'waiting_admin') {
+                colors = "border-orange-500/40 text-orange-400 bg-orange-500/5";
+                label = "WAITING FOR ADMIN";
+            }
+            if (status === 'waiting_user') {
+                colors = "border-amber-500/40 text-amber-400 bg-amber-500/5";
+                label = "WAITING FOR USER";
+            }
             return <span className={`px-4 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest ${colors}`}>{label}</span>;
         };
 
@@ -474,14 +482,13 @@
                 }
             };
 
-            const sendDiscordDM = async (discordUserId, message) => {
+            const sendDiscordDM = async (discordUserId, embed) => {
                 if (!DISCORD_BOT_TOKEN || DISCORD_BOT_TOKEN === "YOUR_BOT_TOKEN_HERE") return;
                 try {
                     const baseUrl = DISCORD_BRIDGE_URL && !DISCORD_BRIDGE_URL.includes("PASTE_YOUR") 
                         ? DISCORD_BRIDGE_URL.replace(/\/$/, "") 
                         : "https://discord.com/api";
 
-                    // Create DM Channel
                     const dmRes = await fetch(`${baseUrl}/users/@me/channels`, {
                         method: 'POST',
                         headers: { 'Authorization': `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
@@ -493,7 +500,7 @@
                         await fetch(`${baseUrl}/channels/${channel.id}/messages`, {
                             method: 'POST',
                             headers: { 'Authorization': `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ content: message })
+                            body: JSON.stringify({ embeds: [embed] })
                         });
                     }
                 } catch(e) {
@@ -739,7 +746,6 @@
                 if (!text.trim()) return;
                 const ticket = tickets.find(t => t.id === ticketId);
                 if (!ticket) return;
-                
                 const msg = { sender: user.email, sender_name: user.username || user.email, text: text.trim(), time: new Date().toISOString(), is_admin: isAdmin };
                 const updatedMessages = [...(ticket.messages || []), msg];
                 
@@ -748,16 +754,25 @@
                     updateData.has_unread_user = true;
                 } else {
                     updateData.has_unread_admin = true;
-                    if (ticket.status === 'waiting_user') updateData.status = 'open';
+                    // Automatically flip to WAITING FOR ADMIN (Orange) if user responds
+                    updateData.status = 'waiting_admin'; 
                 }
 
                 const { error } = await _supabase.from('tickets').update(updateData).eq('id', ticketId);
                 if (!error) {
                     setTicketMessage('');
+                    // Only send DM if Admin is replying (User prefers it)
                     if (isAdmin) {
                         const targetUser = users.find(u => u.email === ticket.user_email);
                         if (targetUser?.discord_info && targetUser.notifications?.tickets !== false) {
-                            sendDiscordDM(targetUser.discord_info.id, `🔔 **SZH SERVICES**: New reply on ticket "${ticket.subject}"!\nCheck it here: https://szhdk.github.io/szhservices/#/support`);
+                            sendDiscordDM(targetUser.discord_info.id, {
+                                title: "🎫 TICKET UPDATE",
+                                description: `New response on your ticket: **${ticket.subject}**`,
+                                color: 9133302,
+                                fields: [{ name: "Message Snippet", value: text.substring(0, 200) + (text.length > 200 ? "..." : "") }],
+                                footer: { text: "SZH Services Support" },
+                                timestamp: new Date().toISOString()
+                            });
                         }
                     }
                 }
@@ -786,7 +801,13 @@
                     const ticket = tickets.find(t => t.id === ticketId);
                     const targetUser = users.find(u => u.email === ticket.user_email);
                     if (targetUser?.discord_info && targetUser.notifications?.tickets !== false) {
-                        sendDiscordDM(targetUser.discord_info.id, `⚠️ **SZH SERVICES**: An admin is waiting for your response on ticket "${ticket.subject}".`);
+                        sendDiscordDM(targetUser.discord_info.id, {
+                            title: "⚠️ ACTION REQUIRED",
+                            description: `An admin is waiting for your response on ticket: **${ticket.subject}**`,
+                            color: 16761095, // Amber
+                            footer: { text: "SZH Services Support" },
+                            timestamp: new Date().toISOString()
+                        });
                     }
                 }
             };
@@ -797,10 +818,16 @@
                 const updatedMessages = [...(ticket?.messages || []), sysMsg];
                 const { error } = await _supabase.from('tickets').update({ status: 'closed', has_unread_user: true, messages: updatedMessages }).eq('id', ticketId);
                 if (!error) {
-                    const updated = tickets.map(t => t.id === ticketId ? { ...t, status: 'closed', has_unread_user: true, messages: updatedMessages } : t);
-                    setTickets(updated);
-                    setActiveTicket(null);
-                    setClosingTicket(null);
+                    const targetUser = users.find(u => u.email === ticket.user_email);
+                    if (targetUser?.discord_info && targetUser.notifications?.tickets !== false) {
+                        sendDiscordDM(targetUser.discord_info.id, {
+                            title: "🔒 TICKET CLOSED",
+                            description: `Your ticket **${ticket.subject}** has been marked as completed.`,
+                            color: 15548997, // Red
+                            footer: { text: "SZH Services Support" },
+                            timestamp: new Date().toISOString()
+                        });
+                    }
                     notify("Ticket closed.");
                 }
             };
