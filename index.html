@@ -956,45 +956,33 @@
                         {user && (
                             <>
                                 {view === 'home' && !selectedGame && (
-                                    <div className="max-w-7xl mx-auto px-6 py-24 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                                        <div className="flex justify-between items-center mb-20">
+                                    <div className="max-w-7xl mx-auto px-6 py-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                                        <div className="flex justify-between items-center mb-16">
                                             <div>
-                                                <p className="text-[11px] font-black text-primary uppercase tracking-[0.6em] mb-4 italic opacity-80">WELCOME TO SZH</p>
-                                                <h2 className="text-8xl font-black italic uppercase tracking-tighter leading-none">SZH <span className="text-gradient font-light">SERVICES</span></h2>
+                                                <p className="text-[10px] font-black text-primary uppercase tracking-[0.5em] mb-4 italic">WELCOME TO SZH</p>
+                                                <h2 className="text-7xl font-black italic uppercase tracking-tighter">SZH <span className="text-gradient font-light">SERVICES</span></h2>
                                             </div>
-                                            <div className="bg-white/5 border border-white/5 px-8 py-4 rounded-3xl flex items-center gap-4">
-                                                <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.6)]"></div>
-                                                <span className="text-xs font-black uppercase tracking-[0.3em] opacity-60">{products.length} PRODUCTS</span>
+                                            <div className="flex gap-4">
+                                                <div className="bg-white/5 border border-border px-6 py-3 rounded-2xl flex items-center gap-3">
+                                                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+                                                    <span className="text-[9px] font-black uppercase tracking-widest">{products.length} Products</span>
+                                                </div>
                                             </div>
                                         </div>
                                         
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
                                             {games.map(g => (
-                                                <div key={g.name} onClick={()=>setSelectedGame(g.name)} className="bg-[#111111] border border-white/5 rounded-[3.5rem] overflow-hidden group cursor-pointer hover:border-white/20 transition-all duration-500 hover:translate-y-[-10px] flex flex-col shadow-2xl">
-                                                    <div className="h-[28rem] overflow-hidden relative">
-                                                        <img src={g.image} className="w-full h-full object-cover group-hover:scale-110 transition-all duration-1000" />
-                                                        <div className="absolute inset-0 bg-gradient-to-t from-[#111111] via-transparent to-transparent opacity-80"></div>
-                                                        
-                                                        {/* Instant Delivery Badge */}
-                                                        <div className="absolute top-8 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-xl px-6 py-2.5 rounded-2xl border border-white/10 flex items-center gap-3 shadow-2xl">
-                                                            <Icon name="zap" className="h-3.5 w-3.5 text-emerald-400" />
-                                                            <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">INSTANT DELIVERY</span>
-                                                        </div>
-
-                                                        {/* Game Title Overlay */}
-                                                        <div className="absolute bottom-10 left-10">
-                                                            <h3 className="font-black text-5xl tracking-tighter uppercase italic drop-shadow-2xl">{g.name}</h3>
-                                                        </div>
+                                                <div key={g.name} onClick={()=>setSelectedGame(g.name)} className="bg-card border border-border rounded-[1.5rem] overflow-hidden group cursor-pointer hover:border-primary/50 transition-all hover:shadow-glow">
+                                                    <div className="h-48 overflow-hidden relative">
+                                                        <img src={g.image} className="w-full h-full object-cover group-hover:scale-110 transition-all duration-700" />
+                                                        <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent opacity-60"></div>
                                                     </div>
-                                                    
-                                                    <div className="p-10 flex items-center justify-between gap-4">
-                                                        <div className="space-y-1">
-                                                            <p className="text-[9px] font-black opacity-20 uppercase tracking-[0.4em]">STARTING FROM</p>
-                                                            <p className="text-2xl font-black">{g.minPrice} <span className="text-xs opacity-40 font-bold">EUR</span></p>
+                                                    <div className="p-6">
+                                                        <h3 className="font-black text-xl mb-4 tracking-tight uppercase italic">{g.name}</h3>
+                                                        <div className="mt-6 flex justify-between items-end border-t border-white/5 pt-5">
+                                                            <div><p className="text-[9px] font-black opacity-30 uppercase tracking-widest">Starting From</p><p className="text-2xl font-black">{g.minPrice} EUR</p></div>
+                                                            <button className="bg-white/5 px-5 py-2.5 rounded-lg text-[10px] font-black uppercase group-hover:bg-primary group-hover:text-black transition-all tracking-widest">View More</button>
                                                         </div>
-                                                        <button className="bg-white/5 px-8 py-5 rounded-[2rem] text-[10px] font-black uppercase group-hover:bg-white group-hover:text-black transition-all tracking-widest flex items-center gap-3 border border-white/5">
-                                                            VIEW MORE <Icon name="arrow-right" className="h-3 w-3" />
-                                                        </button>
                                                     </div>
                                                 </div>
                                             ))}
