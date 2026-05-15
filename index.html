@@ -726,6 +726,36 @@
                             setOrders(prev => prev.filter(o => o.id !== payload.old.id));
                         }
                     })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, (payload) => {
+                        if (payload.eventType === 'INSERT') {
+                            setProducts(prev => [...prev, payload.new]);
+                        } else if (payload.eventType === 'UPDATE') {
+                            setProducts(prev => prev.map(p => p.id === payload.new.id ? payload.new : p));
+                        } else if (payload.eventType === 'DELETE') {
+                            setProducts(prev => prev.filter(p => p.id !== payload.old.id));
+                        }
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'szh_users' }, (payload) => {
+                        if (payload.eventType === 'INSERT') {
+                            setUsers(prev => [...prev, payload.new]);
+                        } else if (payload.eventType === 'UPDATE') {
+                            setUsers(prev => prev.map(u => u.email === payload.new.email ? payload.new : u));
+                            if (payload.new.email === user.email) {
+                                setUser(payload.new);
+                            }
+                        } else if (payload.eventType === 'DELETE') {
+                            setUsers(prev => prev.filter(u => u.email !== payload.old.email));
+                        }
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'coupons' }, (payload) => {
+                        if (payload.eventType === 'INSERT') {
+                            setCoupons(prev => [...prev, payload.new]);
+                        } else if (payload.eventType === 'UPDATE') {
+                            setCoupons(prev => prev.map(c => c.id === payload.new.id ? payload.new : c));
+                        } else if (payload.eventType === 'DELETE') {
+                            setCoupons(prev => prev.filter(c => c.id !== payload.old.id));
+                        }
+                    })
                     .subscribe();
 
                 return () => { _supabase.removeChannel(channel); };
