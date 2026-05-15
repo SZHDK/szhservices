@@ -702,14 +702,33 @@
                 if (ticketChatRef.current) ticketChatRef.current.scrollTop = ticketChatRef.current.scrollHeight;
             }, [activeTicket?.messages]);
 
-            // Polling for ticket updates
+            // Realtime subscriptions for instant updates
             useEffect(() => {
                 if (!user) return;
-                const interval = setInterval(async () => {
-                    const { data } = await _supabase.from('tickets').select('*').order('created_at', { ascending: false });
-                    if (data) setTickets(data);
-                }, 15000);
-                return () => clearInterval(interval);
+
+                const channel = _supabase.channel('realtime-all')
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, (payload) => {
+                        if (payload.eventType === 'INSERT') {
+                            setTickets(prev => [payload.new, ...prev.filter(t => t.id !== payload.new.id)]);
+                        } else if (payload.eventType === 'UPDATE') {
+                            setTickets(prev => prev.map(t => t.id === payload.new.id ? payload.new : t));
+                            setActiveTicket(prev => prev?.id === payload.new.id ? payload.new : prev);
+                        } else if (payload.eventType === 'DELETE') {
+                            setTickets(prev => prev.filter(t => t.id !== payload.old.id));
+                        }
+                    })
+                    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, (payload) => {
+                        if (payload.eventType === 'INSERT') {
+                            setOrders(prev => [payload.new, ...prev.filter(o => o.id !== payload.new.id)]);
+                        } else if (payload.eventType === 'UPDATE') {
+                            setOrders(prev => prev.map(o => o.id === payload.new.id ? payload.new : o));
+                        } else if (payload.eventType === 'DELETE') {
+                            setOrders(prev => prev.filter(o => o.id !== payload.old.id));
+                        }
+                    })
+                    .subscribe();
+
+                return () => { _supabase.removeChannel(channel); };
             }, [user]);
 
             const startCheckoutFlow = () => {
