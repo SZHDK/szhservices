@@ -746,6 +746,19 @@
                 }
             };
 
+            const reopenTicket = async (ticketId) => {
+                const ticket = tickets.find(t => t.id === ticketId);
+                const sysMsg = { sender: 'system', sender_name: 'System', text: `Ticket reopened by ${user.username || user.email}`, time: new Date().toISOString(), is_admin: true, is_system: true };
+                const updatedMessages = [...(ticket?.messages || []), sysMsg];
+                const { error } = await _supabase.from('tickets').update({ status: 'open', messages: updatedMessages }).eq('id', ticketId);
+                if (!error) {
+                    const updated = tickets.map(t => t.id === ticketId ? { ...t, status: 'open', messages: updatedMessages } : t);
+                    setTickets(updated);
+                    setActiveTicket(updated.find(t => t.id === ticketId));
+                    notify("Ticket reopened.");
+                }
+            };
+
             const deleteTicket = async (ticketId) => {
                 const { error } = await _supabase.from('tickets').delete().eq('id', ticketId);
                 if (!error) {
@@ -1740,7 +1753,11 @@
                                                                             </div>
                                                                         )}
                                                                         {activeTicket.status === 'unclaimed' && <button onClick={() => claimTicket(activeTicket.id)} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">Claim</button>}
-                                                                        {activeTicket.status !== 'closed' && <button onClick={() => setClosingTicket(activeTicket)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">Close</button>}
+                                                                        {activeTicket.status !== 'closed' ? (
+                                                                            <button onClick={() => setClosingTicket(activeTicket)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">Close</button>
+                                                                        ) : (
+                                                                            <button onClick={() => reopenTicket(activeTicket.id)} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">Reopen</button>
+                                                                        )}
                                                                         <button onClick={() => setDeletingTicket(activeTicket)} className="bg-white/5 text-white/40 border border-white/10 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/20 transition-all">Delete</button>
                                                                     </div>
                                                                 </div>
