@@ -653,9 +653,21 @@
                 if (!text.trim()) return;
                 const ticket = tickets.find(t => t.id === ticketId);
                 if (!ticket) return;
-                const msg = { sender: user.email, sender_name: user.username || user.email, text: text.trim(), time: new Date().toISOString(), is_admin: isAdmin };
+                
+                const msg = { 
+                    sender: user.email, 
+                    sender_name: user.username || user.email, 
+                    text: text.trim(), 
+                    time: new Date().toISOString(), 
+                    is_admin: isAdmin 
+                };
+                
                 const updatedMessages = [...(ticket.messages || []), msg];
                 
+                // Optimistic UI Update: Update local state immediately
+                setTickets(prev => prev.map(t => t.id === ticketId ? { ...t, messages: updatedMessages } : t));
+                setTicketMessage('');
+
                 let updateData = { messages: updatedMessages };
                 if (isAdmin) {
                     updateData.has_unread_user = true;
@@ -663,9 +675,11 @@
                     updateData.has_unread_admin = true;
                 }
 
+                // Database Update: Runs in background
                 const { error } = await _supabase.from('tickets').update(updateData).eq('id', ticketId);
-                if (!error) {
-                    setTicketMessage('');
+                if (error) {
+                    notify("Failed to send message to cloud.", "error");
+                    console.error("Message Send Error:", error);
                 }
             };
 
