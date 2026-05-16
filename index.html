@@ -170,14 +170,6 @@
                 colors = "border-cyan-500/40 text-cyan-400 bg-cyan-500/5";
                 label = "TESTING";
             }
-            if (status === 'waiting_admin') {
-                colors = "border-orange-500/40 text-orange-400 bg-orange-500/5";
-                label = "WAITING FOR ADMIN";
-            }
-            if (status === 'waiting_user') {
-                colors = "border-amber-500/40 text-amber-400 bg-amber-500/5";
-                label = "WAITING FOR USER";
-            }
             return <span className={`px-4 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest ${colors}`}>{label}</span>;
         };
 
@@ -433,78 +425,6 @@
                 window.location.href = url;
             };
 
-            const finalizeDiscordDisconnect = async () => {
-                const { error } = await _supabase.from('szh_users').update({ discord_info: null }).eq('email', user.email);
-                if (!error) {
-                    setUser(prev => ({ ...prev, discord_info: null }));
-                    setUsers(users.map(u => u.email === user.email ? {...u, discord_info: null} : u));
-                    notify("Discord account disconnected.");
-                } else {
-                    notify("Failed to disconnect from database.", "error");
-                }
-                setConfirmingDiscordDisconnect(false);
-            };
-
-            const grantDiscordRole = async (discordUserId, roleId) => {
-                if (!DISCORD_BOT_TOKEN || !DISCORD_GUILD_ID || !roleId) {
-                    console.warn('Role grant aborted: Missing configuration.');
-                    return;
-                }
-                try {
-                    const baseUrl = DISCORD_BRIDGE_URL && !DISCORD_BRIDGE_URL.includes("PASTE_YOUR") 
-                        ? DISCORD_BRIDGE_URL.replace(/\/$/, "") 
-                        : "https://discord.com/api";
-                        
-                    const url = `${baseUrl}/guilds/${DISCORD_GUILD_ID}/members/${discordUserId}/roles/${roleId}`;
-                    console.log('Sending Discord Request to:', url);
-                    
-                    const response = await fetch(url, {
-                        method: 'PUT',
-                        headers: {
-                            'Authorization': `Bot ${DISCORD_BOT_TOKEN}`,
-                            'X-Audit-Log-Reason': 'SZH Services Purchase Delivered'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        notify(`Discord Role Granted to ${discordUserId}!`);
-                    } else {
-                        const errData = await response.text();
-                        console.error('Discord API Error Details:', errData);
-                        notify(`Discord Error: ${response.status}`, 'error');
-                    }
-                } catch(e) {
-                    console.error('Discord API Fetch Error:', e);
-                    notify('Connection to Discord Bridge failed', 'error');
-                }
-            };
-
-            const sendDiscordDM = async (discordUserId, embed) => {
-                if (!DISCORD_BOT_TOKEN || DISCORD_BOT_TOKEN === "YOUR_BOT_TOKEN_HERE") return;
-                try {
-                    const baseUrl = DISCORD_BRIDGE_URL && !DISCORD_BRIDGE_URL.includes("PASTE_YOUR") 
-                        ? DISCORD_BRIDGE_URL.replace(/\/$/, "") 
-                        : "https://discord.com/api";
-
-                    const dmRes = await fetch(`${baseUrl}/users/@me/channels`, {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ recipient_id: discordUserId })
-                    });
-                    const channel = await dmRes.json();
-                    
-                    if (channel.id) {
-                        await fetch(`${baseUrl}/channels/${channel.id}/messages`, {
-                            method: 'POST',
-                            headers: { 'Authorization': `Bot ${DISCORD_BOT_TOKEN}`, 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ embeds: [embed] })
-                        });
-                    }
-                } catch(e) {
-                    console.error('Discord DM Error:', e);
-                }
-            };
-
             // AUTH ACTIONS
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -741,8 +661,6 @@
                     updateData.has_unread_user = true;
                 } else {
                     updateData.has_unread_admin = true;
-                    // Automatically flip to WAITING FOR ADMIN (Orange) if user responds
-                    updateData.status = 'waiting_admin'; 
                 }
 
                 const { error } = await _supabase.from('tickets').update(updateData).eq('id', ticketId);
@@ -764,24 +682,6 @@
                     setTickets(updated);
                     setActiveTicket(updated.find(t => t.id === ticketId));
                     notify("Ticket claimed!");
-                }
-            };
-
-            const setTicketWaitingUser = async (ticketId) => {
-                const { error } = await _supabase.from('tickets').update({ status: 'waiting_user' }).eq('id', ticketId);
-                if (!error) {
-                    notify("Ticket marked: Waiting for User Response");
-                    const ticket = tickets.find(t => t.id === ticketId);
-                    const targetUser = users.find(u => u.email === ticket.user_email);
-                    if (targetUser?.discord_info) {
-                        sendDiscordDM(targetUser.discord_info.id, {
-                            title: "⚠️ ACTION REQUIRED",
-                            description: `An admin is waiting for your response on ticket: **${ticket.subject}**`,
-                            color: 16761095, // Amber
-                            footer: { text: "SZH Services Support" },
-                            timestamp: new Date().toISOString()
-                        });
-                    }
                 }
             };
 
@@ -1800,7 +1700,6 @@
                                                                             </div>
                                                                         )}
                                                                         {activeTicket.status === 'unclaimed' && <button onClick={() => claimTicket(activeTicket.id)} className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500/20 transition-all">Claim</button>}
-                                                                        {activeTicket.status === 'open' && <button onClick={() => setTicketWaitingUser(activeTicket.id)} className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 transition-all">Wait for User</button>}
                                                                         {activeTicket.status !== 'closed' ? (
                                                                             <button onClick={() => setClosingTicket(activeTicket)} className="bg-red-500/10 text-red-400 border border-red-500/20 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-all">Close</button>
                                                                         ) : (
@@ -1883,7 +1782,7 @@
                                                                         <span className="text-[8px] font-black text-primary uppercase tracking-widest">{activeTicket.claimed_admin.username}</span>
                                                                     </div>
                                                                 )}
-                                                                <span className={`text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${activeTicket.status === 'open' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' : activeTicket.status === 'closed' ? 'border-red-500/30 text-red-400 bg-red-500/5' : 'border-amber-500/30 text-amber-400 bg-amber-500/5'}`}>{activeTicket.status}</span>
+                                                                <span className={`text-[8px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${activeTicket.status === 'open' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/5' : activeTicket.status === 'closed' ? 'border-red-500/30 text-red-400 bg-red-500/5' : 'border-primary/30 text-primary bg-primary/5'}`}>{activeTicket.status}</span>
                                                             </div>
                                                         </div>
                                                         <div ref={ticketChatRef} className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar">
