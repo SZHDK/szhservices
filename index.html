@@ -335,11 +335,13 @@
                 const { data: cData } = await _supabase.from('coupons').select('*');
                 if (cData) setCoupons(cData);
 
-                const { data: tData } = await _supabase.from('tickets').select('*').order('created_at', { ascending: false });
+                const { data: tData, error: tErr } = await _supabase.from('tickets').select('*').order('created_at', { ascending: false });
                 if (tData) setTickets(tData);
+                if (tErr) console.error("Tickets Fetch Error:", tErr);
 
-                const { data: sData } = await _supabase.from('site_settings').select('*').eq('key', 'status').single();
+                const { data: sData, error: sErr } = await _supabase.from('site_settings').select('*').eq('key', 'status').single();
                 if (sData) setSiteStatus(sData.value);
+                if (sErr) console.error("Site Settings Fetch Error:", sErr);
             };
 
             useEffect(() => {
@@ -658,6 +660,9 @@
                             ], timestamp: new Date().toISOString() }] })
                         });
                     } catch(e) {}
+                } else {
+                    console.error("Ticket Creation Error:", error);
+                    notify(`FAILED TO CREATE TICKET: ${error?.message || "Check Console"}`, "error");
                 }
             };
 
