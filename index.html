@@ -1083,7 +1083,7 @@
                 const groups = {};
                 products.forEach(p => {
                     let cat = (p.category || 'SERVICES').toUpperCase();
-                    if (cat === 'GAMES' || cat === 'CHEATS') cat = 'SERVICES';
+                    if (cat === 'CHEATS') cat = 'SERVICES';
                     if (cat !== storeTab) return;
 
                     const g = p.game || 'Other';
@@ -1542,7 +1542,7 @@
                                                 <div className="bg-card border border-border p-10 rounded-[3rem] shadow-glow sticky top-32">
                                                     <h4 className="text-center text-[10px] font-black uppercase opacity-20 mb-10 tracking-[0.4em] italic">Choose Plan</h4>
                                                     <div className="space-y-5">
-                                                        {((!prod.category || prod.category.toUpperCase() === 'SERVICES' || prod.category.toUpperCase() === 'CHEATS' || prod.category.toUpperCase() === 'GAMES') ? ['day', 'month', 'lifetime'] : ['one_time']).map(t => {
+                                                        {((!prod.category || prod.category.toUpperCase() === 'SERVICES' || prod.category.toUpperCase() === 'CHEATS') ? ['day', 'month', 'lifetime'] : ['one_time']).map(t => {
                                                             const isOneTime = t === 'one_time';
                                                             const price = isOneTime ? prod.price : t === 'day' ? prod.price : t === 'month' ? prod.month_price : prod.lifetime_price;
                                                             const stock = isOneTime ? (prod.stock?.one_time !== undefined ? prod.stock.one_time : prod.stock?.day) : t === 'day' ? prod.stock?.day : t === 'month' ? prod.stock?.month : prod.stock?.lifetime;
@@ -2060,7 +2060,7 @@
                                     <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-primary">Pricing (EUR)</p>
                                         <div className="space-y-4">
-                                            {(!form.category || form.category.toUpperCase() === 'SERVICES' || form.category.toUpperCase() === 'CHEATS' || form.category.toUpperCase() === 'GAMES') ? (
+                                            {(!form.category || form.category.toUpperCase() === 'SERVICES' || form.category.toUpperCase() === 'CHEATS') ? (
                                                 <>
                                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Price</label><input type="number" value={form.price || 0} onChange={e=>setForm({...form, price:parseFloat(e.target.value) || 0})} className="w-full" /></div>
                                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Price</label><input type="number" value={form.month_price || 0} onChange={e=>setForm({...form, month_price:parseFloat(e.target.value) || 0})} className="w-full" /></div>
@@ -2075,7 +2075,7 @@
                                     <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Inventory Stock</p>
                                         <div className="space-y-4">
-                                            {(!form.category || form.category.toUpperCase() === 'SERVICES' || form.category.toUpperCase() === 'CHEATS' || form.category.toUpperCase() === 'GAMES') ? (
+                                            {(!form.category || form.category.toUpperCase() === 'SERVICES' || form.category.toUpperCase() === 'CHEATS') ? (
                                                 <>
                                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Day Stock</label><input type="number" value={form.stock?.day || 0} onChange={e=>setForm({...form, stock:{...form.stock, day:parseInt(e.target.value) || 0}})} className="w-full" /></div>
                                                     <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Month Stock</label><input type="number" value={form.stock?.month || 0} onChange={e=>setForm({...form, stock:{...form.stock, month:parseInt(e.target.value) || 0}})} className="w-full" /></div>
