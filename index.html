@@ -170,6 +170,14 @@
                 colors = "border-cyan-500/40 text-cyan-400 bg-cyan-500/5";
                 label = "TESTING";
             }
+            if (status === 'available') {
+                colors = "border-emerald-500/40 text-emerald-400 bg-emerald-500/5";
+                label = "AVAILABLE";
+            }
+            if (status === 'unavailable') {
+                colors = "border-red-500/40 text-red-400 bg-red-500/5";
+                label = "UNAVAILABLE";
+            }
             return <span className={`px-4 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest ${colors}`}>{label}</span>;
         };
 
@@ -2085,7 +2093,16 @@
                                             <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Lifetime Role ID</label><input value={form.role_ids?.lifetime || ''} onChange={e=>setForm({...form, role_ids:{...(form.role_ids||{}), lifetime:e.target.value}})} className="w-full border-primary/20" placeholder="ID" /></div>
                                         </div>
                                     </div>
-                                    <div className="col-span-2"><CustomSelect label="Status" value={form.status} onChange={v => setForm({...form, status: v})} options={[{value:'undetected',label:'UNDETECTED'},{value:'updating',label:'UPDATING'},{value:'detected',label:'DETECTED'},{value:'testing',label:'TESTING'},{value:'at-risk',label:'USE AT YOUR OWN RISK'}]} /></div>
+                                    <div className="col-span-2">
+                                        <CustomSelect 
+                                            label="Status" 
+                                            value={form.status} 
+                                            onChange={v => setForm({...form, status: v})} 
+                                            options={(!form.category || form.category.toUpperCase() === 'SERVICES' || form.category.toUpperCase() === 'CHEATS') ? 
+                                                [{value:'undetected',label:'UNDETECTED'},{value:'updating',label:'UPDATING'},{value:'detected',label:'DETECTED'},{value:'testing',label:'TESTING'},{value:'at-risk',label:'USE AT YOUR OWN RISK'}] : 
+                                                [{value:'available',label:'AVAILABLE'},{value:'unavailable',label:'UNAVAILABLE'}]} 
+                                        />
+                                    </div>
                                     
                                     <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-primary">Pricing (EUR)</p>
