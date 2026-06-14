@@ -613,21 +613,29 @@
                 if (!couponCode.trim()) return;
                 const c = coupons.find(c => c.code.toLowerCase() === couponCode.trim().toLowerCase());
                 if (!c) { notify("Invalid coupon code.", "error"); return; }
-                const cartGames = [...new Set(cart.map(i => i.p.game))];
+                
                 const couponGames = c.game_names || [];
-                if (couponGames.length > 0) {
-                    const allValid = cartGames.every(g => couponGames.includes(g));
+                const couponCategories = c.target_categories || [];
+
+                if (couponGames.length > 0 || couponCategories.length > 0) {
+                    const allValid = cart.every(item => {
+                        const gameMatches = couponGames.length === 0 || couponGames.includes(item.p.game);
+                        let pCat = (item.p.category || 'SERVICES').toUpperCase();
+                        if (pCat === 'CHEATS') pCat = 'SERVICES';
+                        const catMatches = couponCategories.length === 0 || couponCategories.includes(pCat);
+                        return gameMatches && catMatches;
+                    });
                     if (!allValid) { notify("Coupon not valid for all items in cart.", "error"); return; }
                 }
                 setAppliedCoupon(c);
                 notify(`Coupon "${c.code}" applied! -${c.discount_percent}% off`);
             };
 
-            const addCoupon = async (code, discount, gameNames) => {
-                const newC = { code, discount_percent: parseInt(discount), game_names: gameNames.length > 0 ? gameNames : [] };
+            const addCoupon = async (code, discount, gameNames, targetCategories) => {
+                const newC = { code, discount_percent: parseInt(discount), game_names: gameNames.length > 0 ? gameNames : [], target_categories: targetCategories.length > 0 ? targetCategories : [] };
                 const { data, error } = await _supabase.from('coupons').insert([newC]).select();
                 if (!error && data) { setCoupons([...coupons, data[0]]); notify("Coupon created!"); }
-                else notify("Failed to create coupon.", "error");
+                else notify("Failed to create coupon. Ensure you added the target_categories column in SQL.", "error");
             };
 
             const deleteCoupon = async (id) => {
@@ -1671,20 +1679,33 @@
                                             <div className="space-y-10 animate-in fade-in duration-500">
                                                 <div className="bg-card border border-border p-10 rounded-[2.5rem] space-y-8">
                                                     <p className="text-lg font-black uppercase tracking-widest">Create <span className="text-primary">Coupon</span></p>
-                                                    <form onSubmit={(e) => { e.preventDefault(); const code = e.target.code.value; const disc = e.target.discount.value; const checkboxes = e.target.querySelectorAll('input[name=couponGame]:checked'); const games = Array.from(checkboxes).map(c => c.value); if (!code || !disc) return; addCoupon(code, disc, games); e.target.reset(); }} className="space-y-6">
+                                                    <form onSubmit={(e) => { e.preventDefault(); const code = e.target.code.value; const disc = e.target.discount.value; const gameCheckboxes = e.target.querySelectorAll('input[name=couponGame]:checked'); const games = Array.from(gameCheckboxes).map(c => c.value); const catCheckboxes = e.target.querySelectorAll('input[name=couponCategory]:checked'); const categories = Array.from(catCheckboxes).map(c => c.value); if (!code || !disc) return; addCoupon(code, disc, games, categories); e.target.reset(); }} className="space-y-6">
                                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                             <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Coupon Code</label><input name="code" placeholder="e.g. SUMMER20" className="w-full" required /></div>
                                                             <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Discount %</label><input name="discount" type="number" min="1" max="100" placeholder="e.g. 20" className="w-full" required /></div>
                                                         </div>
-                                                        <div className="space-y-3">
-                                                            <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Applies To (leave unchecked = store-wide)</label>
-                                                            <div className="flex flex-wrap gap-3">
-                                                                {[...new Set(products.map(p => p.game))].map(g => (
-                                                                    <label key={g} className="flex items-center gap-2 bg-white/5 border border-white/5 px-4 py-2.5 rounded-xl cursor-pointer hover:border-primary/30 transition-all">
-                                                                        <input type="checkbox" name="couponGame" value={g} className="!w-4 !h-4 !p-0 !rounded accent-primary" />
-                                                                        <span className="text-[10px] font-black uppercase tracking-widest">{g}</span>
-                                                                    </label>
-                                                                ))}
+                                                        <div className="space-y-6">
+                                                            <div className="space-y-3">
+                                                                <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Applies To Categories (leave unchecked = store-wide)</label>
+                                                                <div className="flex flex-wrap gap-3">
+                                                                    {['ACCOUNTS', 'SERVICES', 'GAMES', 'IN-GAME ITEMS'].map(c => (
+                                                                        <label key={c} className="flex items-center gap-2 bg-white/5 border border-white/5 px-4 py-2.5 rounded-xl cursor-pointer hover:border-primary/30 transition-all">
+                                                                            <input type="checkbox" name="couponCategory" value={c} className="!w-4 !h-4 !p-0 !rounded accent-primary" />
+                                                                            <span className="text-[10px] font-black uppercase tracking-widest">{c}</span>
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-3">
+                                                                <label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Applies To Sub-Categories</label>
+                                                                <div className="flex flex-wrap gap-3">
+                                                                    {[...new Set(products.map(p => p.game))].map(g => (
+                                                                        <label key={g} className="flex items-center gap-2 bg-white/5 border border-white/5 px-4 py-2.5 rounded-xl cursor-pointer hover:border-primary/30 transition-all">
+                                                                            <input type="checkbox" name="couponGame" value={g} className="!w-4 !h-4 !p-0 !rounded accent-primary" />
+                                                                            <span className="text-[10px] font-black uppercase tracking-widest">{g}</span>
+                                                                        </label>
+                                                                    ))}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                         <button className="bg-primary px-10 py-4 rounded-2xl font-black uppercase text-xs tracking-widest shadow-glow hover:brightness-110 transition-all">Create Coupon</button>
@@ -1696,7 +1717,14 @@
                                                         <div key={c.id} className="bg-card border border-border p-8 rounded-2xl group hover:border-primary/30 transition-all relative">
                                                             <div className="absolute top-4 right-4 bg-primary/10 text-primary border border-primary/20 px-3 py-1 rounded-full text-[10px] font-black">-{c.discount_percent}%</div>
                                                             <p className="text-2xl font-black text-primary tracking-tight mb-2 uppercase">{c.code}</p>
-                                                            <p className="text-[9px] font-black opacity-30 uppercase tracking-widest">{c.game_names && c.game_names.length > 0 ? c.game_names.join(', ') : 'Store-wide'}</p>
+                                                            <p className="text-[9px] font-black opacity-30 uppercase tracking-widest">
+                                                                {(() => {
+                                                                    const parts = [];
+                                                                    if (c.target_categories && c.target_categories.length > 0) parts.push(`Cats: ${c.target_categories.join(', ')}`);
+                                                                    if (c.game_names && c.game_names.length > 0) parts.push(`Subs: ${c.game_names.join(', ')}`);
+                                                                    return parts.length > 0 ? parts.join(' | ') : 'Store-wide';
+                                                                })()}
+                                                            </p>
                                                             <button onClick={() => deleteCoupon(c.id)} className="mt-4 p-2 text-red-400/40 hover:text-red-400 transition-colors"><Icon name="trash-2" className="h-4 w-4" /></button>
                                                         </div>
                                                     ))}
@@ -2089,6 +2117,7 @@
                                         </div>
                                     </div>
 
+                                    {(!form.category || form.category.toUpperCase() === 'SERVICES' || form.category.toUpperCase() === 'CHEATS') && (
                                     <div className="p-6 bg-white/5 rounded-2xl border border-white/5 space-y-6 md:col-span-2">
                                         <p className="text-[10px] font-black uppercase tracking-widest text-blue-400">Supported Systems</p>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -2096,6 +2125,7 @@
                                             <div className="space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Processor</label><input value={form.requirements?.processor} onChange={e=>setForm({...form, requirements:{...form.requirements, processor:e.target.value}})} className="w-full" placeholder="e.g. Intel & AMD" /></div>
                                         </div>
                                     </div>
+                                    )}
 
                                     <div className="col-span-2 space-y-2"><label className="text-[9px] font-black opacity-30 uppercase tracking-[0.4em]">Features (Lines)</label><textarea className="w-full h-40" value={form.featureText} onChange={e=>setForm({...form, featureText:e.target.value})}></textarea></div>
                                 </div>
