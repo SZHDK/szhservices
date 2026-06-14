@@ -1312,13 +1312,13 @@
                                             <div>
                                                 <h2 className="text-5xl font-black italic uppercase tracking-tighter mb-2">{selectedGame}</h2>
                                                 <div className="flex gap-4">
-                                                    <span className="bg-primary/10 text-primary border border-primary/20 px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{products.filter(p=>p.game===selectedGame).length} Products</span>
+                                                    <span className="bg-primary/10 text-primary border border-primary/20 px-4 py-1 rounded-full text-[9px] font-black uppercase tracking-widest">{products.filter(p => p.game === selectedGame && ((p.category || 'SERVICES').toUpperCase() === storeTab || (p.category === 'CHEATS' && storeTab === 'SERVICES'))).length} Products</span>
                                                 </div>
                                             </div>
                                         </div>
 
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-                                            {products.filter(p => p.game === selectedGame).map(p => (
+                                            {products.filter(p => p.game === selectedGame && ((p.category || 'SERVICES').toUpperCase() === storeTab || (p.category === 'CHEATS' && storeTab === 'SERVICES'))).map(p => (
                                                 <div key={p.id} className="bg-card border border-border rounded-[2.5rem] overflow-hidden group hover:border-primary/50 transition-all hover:shadow-glow flex flex-col">
                                                     <div className="h-56 overflow-hidden relative">
                                                         <img src={p.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-all duration-700" />
@@ -1529,6 +1529,7 @@
                                                         <h4 className="text-[11px] font-black text-primary uppercase mb-8 tracking-[0.3em] flex items-center gap-3"><Icon name="zap" /> Features</h4>
                                                         <ul className="space-y-5 text-sm font-bold text-white/60">{(prod.features || []).map(f=><li key={f} className="flex gap-4"><Icon name="check" className="text-primary mt-0.5" /> {f}</li>)}</ul>
                                                     </div>
+                                                    {(!prod.category || prod.category.toUpperCase() === 'SERVICES' || prod.category.toUpperCase() === 'CHEATS') && (
                                                     <div className="bg-white/5 p-10 rounded-[2rem] border border-border flex flex-col items-start">
                                                         <h4 className="text-[11px] font-black text-primary uppercase mb-8 tracking-[0.3em] flex items-center gap-3"><Icon name="info" /> Supported</h4>
                                                         <div className="w-full space-y-5 text-[11px] font-black uppercase tracking-[0.2em] text-white/40">
@@ -1536,6 +1537,7 @@
                                                             <div className="flex justify-between">PROCESSOR <span className="text-white">{prod.requirements?.processor}</span></div>
                                                         </div>
                                                     </div>
+                                                    )}
                                                 </div>
                                             </div>
                                             <div className="space-y-6">
