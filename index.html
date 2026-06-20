@@ -418,9 +418,18 @@
                         
                         const discordInfo = { id: data.id, username: data.username, avatar: avatarUrl };
                         
+                        const { error } = await _supabase.from('szh_users').update({ 
+                            discord_info: discordInfo, 
+                            avatar_url: user.avatar_url || avatarUrl 
+                        }).eq('email', user.email);
+                        
                         if (!error) {
-                            setUser(prev => ({ ...prev, discord_info: discordInfo, avatar_url: prev.avatar_url || avatarUrl }));
+                            const updatedUser = { ...user, discord_info: discordInfo, avatar_url: user.avatar_url || avatarUrl };
+                            setUser(updatedUser);
+                            localStorage.setItem('szh_user', JSON.stringify(updatedUser));
                             notify(`Connected to Discord as ${data.username}!`);
+                        } else {
+                            notify('Database update failed.', 'error');
                         }
                         
                         setSettingsTab('discord');
