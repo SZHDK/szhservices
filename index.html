@@ -278,6 +278,9 @@
 
             // Hash Routing for URL Bar
             useEffect(() => {
+                // Don't overwrite hash if it contains Discord Auth Token
+                if (window.location.hash.includes('access_token=')) return;
+                
                 let path = `/${view}`;
                 if (view === 'admin') path += `/${adminTab}`;
                 if (view === 'support' && activeTicket) path += `/${activeTicket.id}`;
